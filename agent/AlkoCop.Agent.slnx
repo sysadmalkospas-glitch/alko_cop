@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AlkoCop.Agent.Collector/AlkoCop.Agent.Collector.csproj" />
+    <Project Path="src/AlkoCop.Agent.Core/AlkoCop.Agent.Core.csproj" />
+    <Project Path="src/AlkoCop.Agent.Service/AlkoCop.Agent.Service.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AlkoCop.Agent.Core.Tests/AlkoCop.Agent.Core.Tests.csproj" />
+  </Folder>
+</Solution>

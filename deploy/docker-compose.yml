@@ -1,0 +1,34 @@
+# Запуск сервера: docker compose --env-file .env up -d
+# Перед первым запуском скопируйте .env.example в .env и задайте пароли.
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: alkocop
+      POSTGRES_USER: alkocop
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alkocop -d alkocop"]
+      interval: 10s
+      retries: 5
+
+  server:
+    build: ../server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ALKOCOP_DATABASE_URL: postgresql+psycopg://alkocop:${POSTGRES_PASSWORD}@db:5432/alkocop
+      ALKOCOP_ENROLL_KEY: ${ALKOCOP_ENROLL_KEY:?set ALKOCOP_ENROLL_KEY in .env}
+    volumes:
+      # Скриншоты лежат на отдельном диске сервера: путь задаётся в .env.
+      - ${SCREENSHOT_PATH:-./data/screenshots}:/data/screenshots
+    ports:
+      - "${SERVER_PORT:-8000}:8000"
+
+volumes:
+  db-data:

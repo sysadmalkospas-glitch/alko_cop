@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+server/data/
+
+# .NET
+bin/
+obj/
+*.user
+.vs/
+
+# Deploy secrets and data
+deploy/.env
+deploy/data/
