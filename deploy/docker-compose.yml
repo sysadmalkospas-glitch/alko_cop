@@ -27,7 +27,7 @@ services:
       ALKOCOP_DATABASE_URL: postgresql+psycopg://alkocop:${POSTGRES_PASSWORD}@db:5432/alkocop
       ALKOCOP_ENROLL_KEY: ${ALKOCOP_ENROLL_KEY:?set ALKOCOP_ENROLL_KEY in .env}
       ALKOCOP_AUTH_COOKIE_SECURE: "true"
-      FORWARDED_ALLOW_IPS: ${ALKOCOP_PROXY_IP:-172.30.240.2}
+      FORWARDED_ALLOW_IPS: ${ALKOCOP_PROXY_IP:-172.30.240.254}
     volumes:
       # Скриншоты лежат на отдельном диске сервера: путь задаётся в .env.
       - ${SCREENSHOT_PATH:-./data/screenshots}:/data/screenshots
@@ -58,7 +58,7 @@ services:
       - caddy-config:/config
     networks:
       proxy_net:
-        ipv4_address: ${ALKOCOP_PROXY_IP:-172.30.240.2}
+        ipv4_address: ${ALKOCOP_PROXY_IP:-172.30.240.254}
 
 volumes:
   db-data:
@@ -72,3 +72,5 @@ networks:
     ipam:
       config:
         - subnet: ${ALKOCOP_PROXY_SUBNET:-172.30.240.0/24}
+          # Keep the fixed Caddy IP outside Docker's dynamic allocation pool.
+          ip_range: ${ALKOCOP_PROXY_DYNAMIC_RANGE:-172.30.240.0/25}

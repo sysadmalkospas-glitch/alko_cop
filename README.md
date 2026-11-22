@@ -126,8 +126,9 @@ Uvicorn доверяет `X-Forwarded-Proto` и `X-Forwarded-For` только �
 Caddy (`ALKOCOP_PROXY_IP`), поэтому HTTPS-вход и ограничение попыток входа
 по клиентскому IP работают через прокси. Не задавайте доверие ко всем адресам.
 Если подсеть пересекается с существующей сетью Docker или VPN, в `.env`
-измените `ALKOCOP_PROXY_SUBNET` и соответствующий свободный адрес
-`ALKOCOP_PROXY_IP` внутри неё до запуска.
+измените `ALKOCOP_PROXY_SUBNET`, `ALKOCOP_PROXY_DYNAMIC_RANGE` и
+`ALKOCOP_PROXY_IP` до запуска. Фиксированный IP Caddy должен находиться
+в общей подсети, но вне диапазона динамической выдачи Docker.
 
 Разработка и тесты:
 

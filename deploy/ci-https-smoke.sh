@@ -33,8 +33,9 @@ echo
 # Only the Caddy container may publish a host port.
 for service in server db; do
     docker inspect --format '{{json .NetworkSettings.Ports}}' "$("${compose[@]}" ps -q "$service")" |
-        python -c 'import json, sys; assert not any(json.load(sys.stdin).values())'
+        python -c 'import json, sys; assert not any((json.load(sys.stdin) or {}).values())'
 done
+echo "Verified server and database have no published ports"
 
 "${compose[@]}" logs --no-color server | grep -E 'Running upgrade .*0001'
 "${compose[@]}" exec -T server alembic check
@@ -52,6 +53,7 @@ awk '$6 == "alkocop_session" && $4 == "TRUE" { found=1 } END { exit !found }' "$
 "${compose[@]}" exec -T server python -c "import os; from sqlalchemy import create_engine, select; from sqlalchemy.orm import Session; from app.config import get_settings; from app.models import LoginThrottle; from app.security import hash_token; db = Session(create_engine(get_settings().database_url)); keys = list(db.scalars(select(LoginThrottle.key).where(LoginThrottle.key.like('ip:%')))); assert len(keys) == 1 and 'ip:' + hash_token(os.environ['FORWARDED_ALLOW_IPS']) not in keys; db.close()"
 "${curl_tls[@]}" --cookie "$cookie_jar" -H "Origin: $base_url" -X POST "$base_url/api/v1/auth/logout" > /dev/null
 test "$(curl --silent --show-error --cacert "$root_ca" --output /dev/null --write-out '%{http_code}' --cookie "$cookie_jar" "$base_url/api/v1/auth/me")" = 401
+echo "Verified HTTPS login, Secure cookie, client IP and logout revocation"
 
 # The alternate mode uses a dedicated test CA and a certificate from files.
 custom_ca="$RUNNER_TEMP/alkocop-custom-ca.crt"
@@ -67,3 +69,4 @@ ALKOCOP_TLS_MODE=custom "${compose[@]}" up -d --no-deps --force-recreate caddy
 curl --silent --show-error --fail --cacert "$custom_ca" --retry 30 --retry-all-errors \
     --retry-delay 2 --max-time 5 "$base_url/health"
 echo
+echo "Verified custom TLS certificate"
