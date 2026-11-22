@@ -1,0 +1,9 @@
+{
+    auto_https disable_redirects
+    skip_install_trust
+}
+
+https://{$ALKOCOP_HOST:alkocop.internal} {
+    tls internal
+    reverse_proxy server:8000
+}

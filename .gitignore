@@ -14,3 +14,5 @@ obj/
 # Deploy secrets and data
 deploy/.env
 deploy/data/
+deploy/certs/
+deploy/alkocop-root.crt
