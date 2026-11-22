@@ -12,7 +12,9 @@ jobs:
       POSTGRES_PASSWORD: ci-only-password
       ALKOCOP_ENROLL_KEY: ci-only-enroll
       SCREENSHOT_PATH: ${{ github.workspace }}/deploy/data/ci-screenshots
-      SERVER_PORT: "18000"
+      ALKOCOP_HOST: localhost
+      ALKOCOP_HTTPS_PORT: "18443"
+      ALKOCOP_CERTS_DIR: ${{ github.workspace }}/deploy/data/ci-certs
     defaults:
       run:
         working-directory: server
@@ -23,21 +25,9 @@ jobs:
           python-version: "3.13"
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest -q
-      - name: Check migrations on fresh PostgreSQL
+      - name: Check HTTPS, authentication and PostgreSQL migrations
         working-directory: deploy
-        env:
-          ALKOCOP_AUTH_COOKIE_SECURE: "false"
-        run: |
-          install -d -m 0777 "$SCREENSHOT_PATH"
-          docker compose -p alkocop-migration-ci up -d --build
-          curl --fail --retry 30 --retry-all-errors --retry-delay 2 --max-time 5 http://localhost:18000/health
-          docker compose -p alkocop-migration-ci logs --no-color server | grep -E 'Running upgrade .*0001'
-          docker compose -p alkocop-migration-ci exec -T server alembic check
-          docker compose -p alkocop-migration-ci exec -T server python -c "from app.cli import create_first_admin; from app.config import get_settings; assert create_first_admin('ci-admin', 'ci-password-only', get_settings())"
-          curl --silent --show-error --fail --cookie-jar "$RUNNER_TEMP/alkocop-ci-cookies" -H 'Content-Type: application/json' --data '{"login":"ci-admin","password":"ci-password-only"}' http://localhost:18000/api/v1/auth/login > /dev/null
-          curl --silent --show-error --fail --cookie "$RUNNER_TEMP/alkocop-ci-cookies" http://localhost:18000/api/v1/auth/me > /dev/null
-          curl --silent --show-error --fail --cookie "$RUNNER_TEMP/alkocop-ci-cookies" -X POST http://localhost:18000/api/v1/auth/logout > /dev/null
-          test "$(curl --silent --output /dev/null --write-out '%{http_code}' --cookie "$RUNNER_TEMP/alkocop-ci-cookies" http://localhost:18000/api/v1/auth/me)" = 401
+        run: bash ci-https-smoke.sh
       - name: Stop migration test containers
         if: always()
         working-directory: deploy
