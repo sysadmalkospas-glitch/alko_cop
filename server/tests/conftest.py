@@ -1,4 +1,8 @@
+from pathlib import Path
+
 import pytest
+from alembic import command
+from alembic.config import Config
 from fastapi.testclient import TestClient
 
 from app.config import Settings, get_settings
@@ -19,6 +23,9 @@ def settings(tmp_path):
 
 @pytest.fixture
 def client(settings):
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    config.attributes["database_url"] = settings.database_url
+    command.upgrade(config, "head")
     get_settings.cache_clear()
     app.dependency_overrides[get_settings] = lambda: settings
     # lifespan читает get_settings() напрямую, поэтому подменяем и кеш.

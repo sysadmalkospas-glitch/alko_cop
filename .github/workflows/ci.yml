@@ -8,6 +8,11 @@ on:
 jobs:
   server:
     runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-only-password
+      ALKOCOP_ENROLL_KEY: ci-only-enroll
+      SCREENSHOT_PATH: ${{ github.workspace }}/deploy/data/ci-screenshots
+      SERVER_PORT: "18000"
     defaults:
       run:
         working-directory: server
@@ -18,6 +23,18 @@ jobs:
           python-version: "3.13"
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest -q
+      - name: Check migrations on fresh PostgreSQL
+        working-directory: deploy
+        run: |
+          install -d -m 0777 "$SCREENSHOT_PATH"
+          docker compose -p alkocop-migration-ci up -d --build
+          curl --fail --retry 30 --retry-all-errors --retry-delay 2 --max-time 5 http://localhost:18000/health
+          docker compose -p alkocop-migration-ci logs --no-color server | grep -E 'Running upgrade .*0001'
+          docker compose -p alkocop-migration-ci exec -T server alembic check
+      - name: Stop migration test containers
+        if: always()
+        working-directory: deploy
+        run: docker compose -p alkocop-migration-ci down -v
 
   agent:
     runs-on: windows-latest
