@@ -22,4 +22,3 @@ app.include_router(agent.router)
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
-

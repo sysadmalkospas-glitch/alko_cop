@@ -50,4 +50,3 @@ def agent(client):
     assert resp.status_code == 200, resp.text
     token = resp.json()["token"]
     return {"Authorization": f"Bearer {token}"}
-
