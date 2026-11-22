@@ -24,6 +24,7 @@ services:
     environment:
       ALKOCOP_DATABASE_URL: postgresql+psycopg://alkocop:${POSTGRES_PASSWORD}@db:5432/alkocop
       ALKOCOP_ENROLL_KEY: ${ALKOCOP_ENROLL_KEY:?set ALKOCOP_ENROLL_KEY in .env}
+      ALKOCOP_AUTH_COOKIE_SECURE: ${ALKOCOP_AUTH_COOKIE_SECURE:-true}
     volumes:
       # Скриншоты лежат на отдельном диске сервера: путь задаётся в .env.
       - ${SCREENSHOT_PATH:-./data/screenshots}:/data/screenshots

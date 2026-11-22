@@ -152,3 +152,35 @@ class Screenshot(Base):
     file_path: Mapped[str] = mapped_column(String(500))
     content_type: Mapped[str] = mapped_column(String(32))
     size_bytes: Mapped[int] = mapped_column(Integer)
+
+
+class CabinetUser(Base):
+    """A manager with access to the web cabinet, separate from agent identities."""
+
+    __tablename__ = "cabinet_users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    login: Mapped[str] = mapped_column(String(128), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    role: Mapped[str] = mapped_column(String(32), default="admin")
+
+
+class CabinetSession(Base):
+    __tablename__ = "cabinet_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("cabinet_users.id", ondelete="CASCADE"), index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class LoginThrottle(Base):
+    """Persistent fixed-window login attempt counter, keyed by account or IP hash."""
+
+    __tablename__ = "login_throttles"
+
+    key: Mapped[str] = mapped_column(String(70), primary_key=True)
+    attempts: Mapped[int] = mapped_column(Integer)
+    window_ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

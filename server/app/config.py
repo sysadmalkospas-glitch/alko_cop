@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +18,12 @@ class Settings(BaseSettings):
     enroll_key: str = "change-me"
     # Максимальный размер одного скриншота, байт.
     max_screenshot_bytes: int = 5 * 1024 * 1024
+    # Сессии веб-кабинета. Secure-cookie по умолчанию требует HTTPS.
+    auth_cookie_secure: bool = True
+    auth_session_ttl_seconds: int = Field(default=43200, ge=60, le=604800)
+    auth_login_attempt_limit: int = Field(default=5, ge=1, le=100)
+    auth_ip_attempt_limit: int = Field(default=30, ge=1, le=1000)
+    auth_login_window_seconds: int = Field(default=900, ge=60, le=86400)
 
 
 @lru_cache

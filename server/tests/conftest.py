@@ -34,7 +34,7 @@ def client(settings):
     original = main_module.get_settings
     main_module.get_settings = lambda: settings
     try:
-        with TestClient(app) as c:
+        with TestClient(app, base_url="https://testserver") as c:
             yield c
     finally:
         main_module.get_settings = original
