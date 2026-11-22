@@ -3,7 +3,7 @@
   Устанавливает агент AlkoCop на компьютер сотрудника (запускать от администратора).
 
 .EXAMPLE
-  .\install-agent.ps1 -ServerUrl https://alkocop-server.local:8000/ -EnrollKey <ключ> -SourceDir .\publish
+  .\install-agent.ps1 -ServerUrl https://alkocop.internal/ -EnrollKey <ключ> -SourceDir .\publish
 #>
 param(
     [Parameter(Mandatory)] [string] $ServerUrl,

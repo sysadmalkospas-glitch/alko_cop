@@ -1,4 +1,7 @@
 {
+    servers {
+        protocols h1 h2
+    }
     auto_https off
 }
 

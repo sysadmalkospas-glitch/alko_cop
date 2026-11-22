@@ -12,6 +12,14 @@ compose=(docker compose -p alkocop-migration-ci)
 base_url="https://${ALKOCOP_HOST}:${ALKOCOP_HTTPS_PORT}"
 root_ca="$RUNNER_TEMP/alkocop-ci-root.crt"
 cookie_jar="$RUNNER_TEMP/alkocop-ci-cookies"
+headers_file="$RUNNER_TEMP/alkocop-ci-headers"
+
+check_no_h3() {
+    if grep -qi '^alt-svc:.*h3' "$headers_file"; then
+        echo "Unexpected HTTP/3 advertisement" >&2
+        exit 1
+    fi
+}
 
 install -d -m 0777 "$SCREENSHOT_PATH"
 install -d -m 0700 "$ALKOCOP_CERTS_DIR"
@@ -27,7 +35,8 @@ done
 "${compose[@]}" cp caddy:/data/caddy/pki/authorities/local/root.crt "$root_ca"
 
 curl_tls=(curl --silent --show-error --fail --cacert "$root_ca")
-"${curl_tls[@]}" --retry 30 --retry-all-errors --retry-delay 2 --max-time 5 "$base_url/health"
+"${curl_tls[@]}" --retry 30 --retry-all-errors --retry-delay 2 --max-time 5 --dump-header "$headers_file" "$base_url/health"
+check_no_h3
 echo
 
 # Only the Caddy container may publish a host port.
@@ -67,6 +76,7 @@ openssl x509 -req -in "$custom_csr" -CA "$custom_ca" -CAkey "$custom_key" -CAcre
     -out "$ALKOCOP_CERTS_DIR/tls.crt" -days 1 -sha256 -copy_extensions copy
 ALKOCOP_TLS_MODE=custom "${compose[@]}" up -d --no-deps --force-recreate caddy
 curl --silent --show-error --fail --cacert "$custom_ca" --retry 30 --retry-all-errors \
-    --retry-delay 2 --max-time 5 "$base_url/health"
+    --retry-delay 2 --max-time 5 --dump-header "$headers_file" "$base_url/health"
+check_no_h3
 echo
-echo "Verified custom TLS certificate"
+echo "Verified custom TLS certificate and no HTTP/3 advertisement"
