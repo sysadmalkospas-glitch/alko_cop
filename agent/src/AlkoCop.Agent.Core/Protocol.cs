@@ -66,12 +66,18 @@ public sealed record AgentConfigDto(
 /// Сообщение между сборщиком в сессии пользователя и службой (именованный канал,
 /// одна JSON-строка на сообщение).
 /// </summary>
-public sealed record PipeMessage(string Type, ActivitySpanDto? Span = null, SystemEventDto? Event = null, AgentConfigDto? Config = null)
+public sealed record PipeMessage(
+    string Type,
+    ActivitySpanDto? Span = null,
+    SystemEventDto? Event = null,
+    AgentConfigDto? Config = null,
+    ScreenshotFrame? Frame = null)
 {
     public const string PipeName = "AlkoCopAgent";
     public const string TypeSpan = "span";
     public const string TypeEvent = "event";
     public const string TypeConfig = "config";
+    public const string TypeScreenshot = "screenshot";
 
     public string ToLine() => JsonSerializer.Serialize(this, AgentJson.Options);
 

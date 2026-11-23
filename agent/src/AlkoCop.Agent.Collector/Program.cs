@@ -1,16 +1,9 @@
-using System.IO.Pipes;
-using System.Security.Principal;
-using System.Text;
+using System.Diagnostics;
 using AlkoCop.Agent.Core;
 
 namespace AlkoCop.Agent.Collector;
 
-/// <summary>
-/// Сборщик в сессии пользователя. Запускается службой AlkoCopAgent в каждой
-/// активной сессии (включая RDP), окон не показывает. Раз в секунду снимает
-/// активное окно и простой, собирает отрезки активности и передаёт их службе
-/// через именованный канал. Сам на сервер не ходит: токен есть только у службы.
-/// </summary>
+/// <summary>Samples activity and screens in the user's Windows session. Only the service connects to the server.</summary>
 internal static class Program
 {
     private static readonly TimeSpan SampleInterval = TimeSpan.FromSeconds(1);
@@ -24,44 +17,89 @@ internal static class Program
             return 0;
         }
 
+        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         using var cts = new CancellationTokenSource();
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => cts.Cancel();
+        EventHandler onExit = (_, _) => cts.Cancel();
+        AppDomain.CurrentDomain.ProcessExit += onExit;
 
-        var config = AgentConfigDto.Default;
         var tracker = new ActivityTracker(
-            idleThreshold: TimeSpan.FromSeconds(config.IdleThresholdSec),
+            idleThreshold: TimeSpan.FromSeconds(AgentConfigDto.Default.IdleThresholdSec),
             maxSpanLength: TimeSpan.FromMinutes(1),
             maxSampleGap: TimeSpan.FromMinutes(2));
         var sampler = new WindowSampler();
         var pending = new Queue<string>();
-        NamedPipeClientStream? pipe = null;
-        StreamWriter? writer = null;
+        var elapsed = Stopwatch.StartNew();
+        var schedule = new ScreenshotSchedule();
+        var screenshots = new ScreenCapture();
+        Task<CaptureBatch>? capture = null;
+        CollectorConnection? connection = null;
+        long connectionVersion = 0;
 
         try
         {
             using var timer = new PeriodicTimer(SampleInterval);
             while (await timer.WaitForNextTickAsync(cts.Token))
             {
-                foreach (var span in tracker.Add(sampler.Sample()))
+                var config = connection?.Config;
+                if (config is not null)
+                {
+                    tracker.IdleThreshold = TimeSpan.FromSeconds(config.IdleThresholdSec);
+                }
+                var sample = sampler.Sample();
+                foreach (var span in tracker.Add(sample))
                 {
                     Enqueue(pending, new PipeMessage(PipeMessage.TypeSpan, Span: span).ToLine());
                 }
 
-                if (writer is null)
+                if (connection?.IsClosed == true)
                 {
-                    (pipe, writer, var received) = await TryConnectAsync(cts.Token);
-                    if (received is not null)
+                    await connection.DisposeAsync();
+                    connection = null;
+                }
+                if (connection is null)
+                {
+                    schedule.Reset();
+                    connection = await CollectorConnection.TryConnectAsync(cts.Token);
+                    connectionVersion++;
+                }
+                if (connection is not null && !await TryFlushAsync(connection, pending, cts.Token))
+                {
+                    await connection.DisposeAsync();
+                    connection = null;
+                    continue;
+                }
+
+                if (capture?.IsCompleted == true)
+                {
+                    var batch = await capture;
+                    capture = null;
+                    if (connection is not null && connectionVersion == batch.ConnectionVersion)
                     {
-                        config = received;
-                        tracker.IdleThreshold = TimeSpan.FromSeconds(config.IdleThresholdSec);
+                        foreach (var frame in batch.Frames)
+                        {
+                            if (connection.Config != batch.Config)
+                            {
+                                // A superseded profile must never send a late frame to the service.
+                                schedule.Reset();
+                                break;
+                            }
+                            var line = new PipeMessage(PipeMessage.TypeScreenshot, Frame: frame).ToLine();
+                            if (!await connection.SendAsync(line, cts.Token))
+                            {
+                                await connection.DisposeAsync();
+                                connection = null;
+                                break;
+                            }
+                        }
                     }
                 }
 
-                if (writer is not null && !await TryFlushAsync(writer, pending))
+                config = connection?.Config;
+                if (capture is null && schedule.IsDue(config, sample.ProcessName, elapsed.Elapsed))
                 {
-                    writer.Dispose();
-                    pipe?.Dispose();
-                    (writer, pipe) = (null, null);
+                    var profile = config!;
+                    var generation = connectionVersion;
+                    capture = Task.Run(() => new CaptureBatch(profile, generation, screenshots.Take(profile, generation, cts.Token)));
                 }
             }
         }
@@ -70,23 +108,34 @@ internal static class Program
         }
         finally
         {
+            AppDomain.CurrentDomain.ProcessExit -= onExit;
             foreach (var span in tracker.Flush(DateTimeOffset.UtcNow))
             {
                 Enqueue(pending, new PipeMessage(PipeMessage.TypeSpan, Span: span).ToLine());
             }
-            if (writer is not null)
+            if (connection is not null)
             {
-                await TryFlushAsync(writer, pending);
-                writer.Dispose();
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+                try
+                {
+                    await TryFlushAsync(connection, pending, timeout.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                await connection.DisposeAsync();
             }
-            pipe?.Dispose();
+            if (capture is not null)
+            {
+                cts.Cancel();
+                await capture;
+            }
         }
         return 0;
     }
 
     private static void Enqueue(Queue<string> pending, string line)
     {
-        // Если служба долго недоступна, отбрасываем самое старое, чтобы не съесть память.
         if (pending.Count >= MaxPendingMessages)
         {
             pending.Dequeue();
@@ -94,42 +143,18 @@ internal static class Program
         pending.Enqueue(line);
     }
 
-    private static async Task<(NamedPipeClientStream?, StreamWriter?, AgentConfigDto?)> TryConnectAsync(CancellationToken ct)
+    private static async Task<bool> TryFlushAsync(CollectorConnection connection, Queue<string> pending, CancellationToken ct)
     {
-        var pipe = new NamedPipeClientStream(
-            ".", PipeMessage.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous, TokenImpersonationLevel.Identification);
-        try
+        while (pending.TryPeek(out var line))
         {
-            await pipe.ConnectAsync(TimeSpan.FromMilliseconds(500), ct);
-            var reader = new StreamReader(pipe, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
-            // Первым сообщением служба присылает текущие настройки мониторинга.
-            var line = await reader.ReadLineAsync(ct).AsTask().WaitAsync(TimeSpan.FromSeconds(5), ct);
-            var config = line is null ? null : PipeMessage.FromLine(line)?.Config;
-            var writer = new StreamWriter(pipe, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = false };
-            return (pipe, writer, config);
+            if (!await connection.SendAsync(line, ct))
+            {
+                return false;
+            }
+            pending.Dequeue();
         }
-        catch (Exception ex) when (ex is TimeoutException or IOException or UnauthorizedAccessException)
-        {
-            await pipe.DisposeAsync();
-            return (null, null, null);
-        }
+        return true;
     }
 
-    private static async Task<bool> TryFlushAsync(StreamWriter writer, Queue<string> pending)
-    {
-        try
-        {
-            while (pending.TryPeek(out var line))
-            {
-                await writer.WriteLineAsync(line);
-                pending.Dequeue();
-            }
-            await writer.FlushAsync();
-            return true;
-        }
-        catch (IOException)
-        {
-            return false;
-        }
-    }
+    private sealed record CaptureBatch(AgentConfigDto Config, long ConnectionVersion, IReadOnlyList<ScreenshotFrame> Frames);
 }

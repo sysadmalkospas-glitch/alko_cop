@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Win32.SafeHandles;
 
 namespace AlkoCop.Agent.Collector;
 
@@ -30,6 +31,68 @@ internal static partial class NativeMethods
 
     [LibraryImport("kernel32.dll")]
     internal static partial uint GetTickCount();
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetNamedPipeServerSessionId(SafePipeHandle pipe, out uint sessionId);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    private static partial IntPtr OpenInputDesktop(uint flags, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint access);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool CloseDesktop(IntPtr desktop);
+
+    [DllImport("user32.dll", EntryPoint = "GetUserObjectInformationW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetUserObjectInformation(IntPtr handle, int index, StringBuilder info, uint size, out uint needed);
+
+    [LibraryImport("wtsapi32.dll", EntryPoint = "WTSQuerySessionInformationW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool WTSQuerySessionInformation(IntPtr server, uint sessionId, int infoClass, out IntPtr buffer, out uint bytes);
+
+    [LibraryImport("wtsapi32.dll")]
+    private static partial void WTSFreeMemory(IntPtr buffer);
+
+    internal static bool IsInteractiveDesktop()
+    {
+        const uint currentSession = uint.MaxValue;
+        const int connectState = 8;
+        const int active = 0;
+        if (!WTSQuerySessionInformation(IntPtr.Zero, currentSession, connectState, out var buffer, out var bytes))
+        {
+            return false;
+        }
+        try
+        {
+            if (buffer == IntPtr.Zero || bytes < sizeof(int) || Marshal.ReadInt32(buffer) != active)
+            {
+                return false;
+            }
+        }
+        finally
+        {
+            WTSFreeMemory(buffer);
+        }
+
+        const uint desktopReadObjects = 1;
+        const int objectName = 2;
+        var desktop = OpenInputDesktop(0, false, desktopReadObjects);
+        if (desktop == IntPtr.Zero)
+        {
+            return false;
+        }
+        try
+        {
+            var name = new StringBuilder(64);
+            return GetUserObjectInformation(desktop, objectName, name, (uint)(name.Capacity * sizeof(char)), out _)
+                && string.Equals(name.ToString(), "Default", StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            CloseDesktop(desktop);
+        }
+    }
 
     internal static string? GetWindowTitle(IntPtr hWnd)
     {

@@ -12,7 +12,7 @@ namespace AlkoCop.Agent.Service;
 /// </summary>
 public sealed class PipeServerWorker(AgentRuntime runtime, ILogger<PipeServerWorker> logger) : BackgroundService
 {
-    private const int MaxLineLength = 64 * 1024;
+    private const int MaxActivityLineLength = 64 * 1024;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -25,7 +25,7 @@ public sealed class PipeServerWorker(AgentRuntime runtime, ILogger<PipeServerWor
                 await server.WaitForConnectionAsync(stoppingToken);
                 var connected = server;
                 server = null;
-                _ = Task.Run(() => HandleClientAsync(connected, stoppingToken), stoppingToken);
+                _ = HandleClientAsync(connected, stoppingToken);
             }
             catch (OperationCanceledException)
             {
@@ -46,12 +46,20 @@ public sealed class PipeServerWorker(AgentRuntime runtime, ILogger<PipeServerWor
     private static NamedPipeServerStream CreateServer()
     {
         var security = new PipeSecurity();
+        var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+        using var identity = WindowsIdentity.GetCurrent();
+        if (identity.IsSystem)
+        {
+            security.SetOwner(system);
+        }
         security.AddAccessRule(new PipeAccessRule(
-            new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
+            system, PipeAccessRights.FullControl, AccessControlType.Allow));
         security.AddAccessRule(new PipeAccessRule(
             new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
         security.AddAccessRule(new PipeAccessRule(
-            new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null), PipeAccessRights.ReadWrite, AccessControlType.Allow));
+            new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
+            PipeAccessRights.ReadData | PipeAccessRights.WriteData | PipeAccessRights.ReadAttributes | PipeAccessRights.ReadPermissions,
+            AccessControlType.Allow));
         return NamedPipeServerStreamAcl.Create(
             PipeMessage.PipeName,
             PipeDirection.InOut,
@@ -65,34 +73,44 @@ public sealed class PipeServerWorker(AgentRuntime runtime, ILogger<PipeServerWor
 
     private async Task HandleClientAsync(NamedPipeServerStream pipe, CancellationToken ct)
     {
-        await using var _ = pipe;
+        using var connection = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var writer = new StreamWriter(pipe, new UTF8Encoding(false), leaveOpen: true);
+        var publish = PublishConfigAsync(writer, connection);
         try
         {
+            using var reader = new StreamReader(pipe, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+            var lines = new BoundedPipeReader(reader, ScreenshotFrame.MaxPipeLineLength);
+            // Named-pipe impersonation uses the token from the last message read from the client.
+            var line = await lines.ReadLineAsync(connection.Token);
+            if (line is null)
+            {
+                return;
+            }
             string? login = null;
-            pipe.RunAsClient(() => login = WindowsIdentity.GetCurrent(TokenAccessLevels.Query).Name);
+            pipe.RunAsClient(() =>
+            {
+                using var identity = WindowsIdentity.GetCurrent(TokenAccessLevels.Query);
+                login = identity.Name;
+            });
             NativeMethods.GetNamedPipeClientSessionId(pipe.SafePipeHandle, out var sessionId);
             if (string.IsNullOrEmpty(login) || sessionId == 0)
             {
                 return;
             }
 
-            var writer = new StreamWriter(pipe, new UTF8Encoding(false), leaveOpen: true);
-            await writer.WriteLineAsync(new PipeMessage(PipeMessage.TypeConfig, Config: runtime.Config).ToLine());
-            await writer.FlushAsync(ct);
-
-            using var reader = new StreamReader(pipe, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
-            while (!ct.IsCancellationRequested && await reader.ReadLineAsync(ct) is { } line)
+            do
             {
-                if (line.Length > MaxLineLength)
-                {
-                    continue;
-                }
                 var msg = PipeMessage.FromLine(line);
-                if (msg?.Type == PipeMessage.TypeSpan && msg.Span is { } span)
+                if (msg?.Type == PipeMessage.TypeSpan && line.Length <= MaxActivityLineLength && msg.Span is { } span)
                 {
                     runtime.RecordSpan(span with { Login = login, SessionId = (int)sessionId });
                 }
+                else if (msg?.Type == PipeMessage.TypeScreenshot && msg.Frame is { } frame)
+                {
+                    runtime.RecordScreenshot(login, frame);
+                }
             }
+            while ((line = await lines.ReadLineAsync(connection.Token)) is not null);
         }
         catch (OperationCanceledException)
         {
@@ -104,6 +122,42 @@ public sealed class PipeServerWorker(AgentRuntime runtime, ILogger<PipeServerWor
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Collector connection failed");
+        }
+        finally
+        {
+            connection.Cancel();
+            await publish;
+            await pipe.DisposeAsync();
+            try
+            {
+                writer.Dispose();
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+            {
+                // The reader can disconnect before a config update is flushed.
+            }
+        }
+    }
+
+    private async Task PublishConfigAsync(StreamWriter writer, CancellationTokenSource connection)
+    {
+        try
+        {
+            while (!connection.IsCancellationRequested)
+            {
+                var (config, changed) = runtime.SnapshotConfig();
+                var line = new PipeMessage(PipeMessage.TypeConfig, Config: config).ToLine();
+                await writer.WriteLineAsync(line.AsMemory(), connection.Token);
+                await writer.FlushAsync(connection.Token);
+                await changed.WaitAsync(connection.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (IOException)
+        {
+            connection.Cancel();
         }
     }
 }
