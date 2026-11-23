@@ -65,12 +65,21 @@ class Group(Base):
     profile_id: Mapped[int | None] = mapped_column(ForeignKey("monitoring_profiles.id"))
 
 
+class Position(Base):
+    __tablename__ = "positions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+
+
 class Employee(Base):
     __tablename__ = "employees"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     full_name: Mapped[str] = mapped_column(String(300))
-    position: Mapped[str | None] = mapped_column(String(200))
+    position_id: Mapped[int | None] = mapped_column(
+        ForeignKey("positions.id", name="fk_employees_position_id"), index=True,
+    )
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id"))
     is_dismissed: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -96,6 +105,7 @@ class Computer(Base):
     # Постоянный идентификатор машины, который генерирует агент.
     machine_id: Mapped[str] = mapped_column(String(64), unique=True)
     hostname: Mapped[str] = mapped_column(String(255))
+    display_name: Mapped[str | None] = mapped_column(String(255))
     os_version: Mapped[str | None] = mapped_column(String(255))
     agent_version: Mapped[str | None] = mapped_column(String(64))
     office_id: Mapped[int | None] = mapped_column(ForeignKey("offices.id"))
@@ -103,6 +113,10 @@ class Computer(Base):
     token_hash: Mapped[str] = mapped_column(String(128), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    @property
+    def name(self) -> str:
+        return self.display_name if self.display_name is not None else self.hostname
 
 
 class ActivitySpan(Base):
