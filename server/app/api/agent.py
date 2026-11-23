@@ -2,6 +2,7 @@
 
 import re
 from datetime import datetime, timezone
+from itertools import chain
 from pathlib import Path
 from typing import Annotated
 
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 from ..config import Settings, get_settings
 from ..db import get_session
 from ..models import ActivitySpan, Computer, MonitoringProfile, Screenshot, SystemEvent, utcnow
+from ..observed_logins import record_observed_logins
 from ..schemas import (
     ActivityBatch,
     AgentConfig,
@@ -149,6 +151,11 @@ def upload_activity(batch: ActivityBatch, computer: ComputerDep, db: SessionDep)
     db.add_all(new_spans.values())
     db.add_all(new_events.values())
     try:
+        db.flush()
+        record_observed_logins(db, computer.id, chain(
+            ((span.login, span.started_at, span.ended_at) for span in new_spans.values()),
+            ((event.login, event.occurred_at, event.occurred_at) for event in new_events.values()),
+        ))
         db.commit()
     except IntegrityError:
         # Параллельная отправка той же пачки: агент повторит, дубли отсеются.
@@ -206,6 +213,8 @@ def upload_screenshot(
     )
     db.add(shot)
     try:
+        db.flush()
+        record_observed_logins(db, computer.id, [(shot.login, shot.taken_at, shot.taken_at)])
         db.commit()
     except IntegrityError:
         db.rollback()

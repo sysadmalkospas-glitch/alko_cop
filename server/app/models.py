@@ -1,8 +1,8 @@
 """Модели базы данных.
 
 Пользователь Windows (логин) хранится в каждой записи как есть: сопоставление
-логина с сотрудником делается на сервере через таблицу employee_logins, чтобы
-один сотрудник мог работать на разных компьютерах и под разными логинами.
+логина с сотрудником делается через регистронезависимый ключ в employee_logins,
+чтобы один сотрудник мог работать на разных компьютерах и под разными логинами.
 """
 
 from datetime import datetime, timezone
@@ -24,6 +24,12 @@ from .db import Base
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 class Office(Base):
@@ -90,10 +96,12 @@ class EmployeeLogin(Base):
     """Логин Windows (DOMAIN\\user или COMPUTER\\user), закреплённый за сотрудником."""
 
     __tablename__ = "employee_logins"
+    __table_args__ = (UniqueConstraint("login_key", name="uq_employee_logins_login_key"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
     login: Mapped[str] = mapped_column(String(300), unique=True)
+    login_key: Mapped[str] = mapped_column(Text)
 
     employee: Mapped[Employee] = relationship(back_populates="logins")
 
@@ -117,6 +125,16 @@ class Computer(Base):
     @property
     def name(self) -> str:
         return self.display_name if self.display_name is not None else self.hostname
+
+
+class ObservedLogin(Base):
+    __tablename__ = "observed_logins"
+
+    login_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    login: Mapped[str] = mapped_column(String(300))
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_computer_id: Mapped[int | None] = mapped_column(ForeignKey("computers.id", ondelete="SET NULL"))
 
 
 class ActivitySpan(Base):

@@ -3,6 +3,8 @@ from typing import Annotated, Generic, TypeVar, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, with_config
 
+from .models import as_utc
+
 MAX_DIRECTORY_ID = 2_147_483_647
 DirectoryId = Annotated[int, Field(gt=0, le=MAX_DIRECTORY_ID)]
 DirectoryName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -117,7 +119,17 @@ class EmployeeLoginOut(DirectoryRecord):
 
 
 class UnknownLoginOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     login: str
+    first_seen_at: datetime
+    last_seen_at: datetime
+    last_computer_id: int | None
+
+    @field_validator("first_seen_at", "last_seen_at")
+    @classmethod
+    def normalize_timestamp(cls, value: datetime) -> datetime:
+        return as_utc(value)
 
 
 @with_config(ConfigDict(extra="forbid"))

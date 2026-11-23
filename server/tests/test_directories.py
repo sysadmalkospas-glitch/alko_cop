@@ -82,10 +82,16 @@ def test_employee_assignments_and_dismissal(cabinet):
     assert cabinet.get(path).json() == employee
     assert cabinet.get(f"{API}/employees/9223372036854775808").status_code == 422
     assert cabinet.patch(path, json={"group_id": 9223372036854775808}).status_code == 422
-    assert cabinet.post(f"{API}/offices", json={"name": office["name"]}).status_code == 409
-    assert cabinet.patch(path, json={"group_id": 999}).status_code == 409
+    duplicate = cabinet.post(f"{API}/offices", json={"name": office["name"]})
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"] == "Duplicate directory value"
+    missing_reference = cabinet.patch(path, json={"group_id": 999})
+    assert missing_reference.status_code == 409
+    assert missing_reference.json()["detail"] == "Referenced directory record does not exist"
     for resource, record in [("offices", office), ("groups", group), ("positions", position)]:
-        assert cabinet.delete(f"{API}/{resource}/{record['id']}").status_code == 409
+        in_use = cabinet.delete(f"{API}/{resource}/{record['id']}")
+        assert in_use.status_code == 409
+        assert in_use.json()["detail"] == "Directory record is in use"
 
     assert cabinet.delete(path).status_code == 204
     assert cabinet.delete(path).status_code == 204
@@ -109,7 +115,7 @@ def test_unknown_logins_and_employee_binding(cabinet, agent):
     response = cabinet.post("/api/agent/v1/activity", headers=agent, json={
         "spans": [{"id": "a", "login": span_login, "started_at": now, "ended_at": now}],
         "events": [
-            {"id": "b", "login": span_login, "occurred_at": now, "kind": "logon"},
+            {"id": "b", "login": span_login.lower(), "occurred_at": now, "kind": "logon"},
             {"id": "c", "login": event_login, "occurred_at": now, "kind": "logon"},
             {"id": "d", "occurred_at": now, "kind": "agent_start"},
         ],
@@ -123,25 +129,58 @@ def test_unknown_logins_and_employee_binding(cabinet, agent):
     assert response.status_code == 201, response.text
 
     unknown = f"{API}/logins/unknown"
-    assert cabinet.get(unknown).json()["items"] == [
-        {"login": span_login}, {"login": event_login}, {"login": screenshot_login},
-    ]
+    observed = cabinet.get(unknown).json()["items"]
+    assert [item["login"] for item in observed] == [span_login, event_login, screenshot_login]
     assert cabinet.get(unknown, params={"q": "USER_", "limit": 1, "offset": 1}).json() == {
-        "items": [{"login": event_login}], "total": 2, "limit": 1, "offset": 1,
+        "items": [observed[1]], "total": 2, "limit": 1, "offset": 1,
     }
     first = create(cabinet, "employees", full_name="Первый")
     second = create(cabinet, "employees", full_name="Второй")
     first_logins = f"employees/{first['id']}/logins"
     second_logins = f"{API}/employees/{second['id']}/logins"
-    binding = create(cabinet, first_logins, login=span_login)
+    binding = create(cabinet, first_logins, login=span_login.lower())
     assert cabinet.get(f"{API}/{first_logins}").json()["items"] == [binding]
-    assert cabinet.post(second_logins, json={"login": span_login}).status_code == 409
+    duplicate = cabinet.post(second_logins, json={"login": span_login})
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"] == "Duplicate directory value"
     assert cabinet.delete(f"{second_logins}/{binding['id']}").status_code == 404
-    assert cabinet.get(unknown).json()["items"] == [{"login": event_login}, {"login": screenshot_login}]
+    assert cabinet.get(unknown).json()["items"] == observed[1:]
     assert cabinet.delete(f"{API}/employees/{first['id']}").status_code == 204
     assert cabinet.get(f"{API}/{first_logins}").json()["items"] == [binding]
     assert cabinet.delete(f"{API}/{first_logins}/{binding['id']}").status_code == 204
-    assert cabinet.get(unknown).json()["items"][0] == {"login": span_login}
+    assert cabinet.get(unknown).json()["items"] == observed
+
+
+def test_observations_keep_earliest_and_latest_across_computers(cabinet, agent):
+    other = cabinet.post("/api/agent/v1/enroll", json={
+        "enroll_key": ENROLL_KEY, "machine_id": "machine-0002", "hostname": "PC-2",
+    }).json()
+    upload = "/api/agent/v1/activity"
+    login = r"CLINIC\Иванов"
+    span = {"id": "span", "login": login, "started_at": "2026-11-20T09:00:00Z", "ended_at": "2026-11-20T11:00:00Z"}
+    assert cabinet.post(upload, headers=agent, json={"spans": [span]}).json()["accepted_spans"] == 1
+    assert cabinet.post(upload, headers=agent, json={"spans": [
+        {**span, "ended_at": "2026-11-20T18:00:00Z"},
+    ]}).json()["accepted_spans"] == 0
+
+    other_headers = {"Authorization": f"Bearer {other['token']}"}
+    earliest = {"id": "earliest", "login": login.lower(), "occurred_at": "2026-11-20T08:00:00Z", "kind": "logon"}
+    assert cabinet.post(upload, headers=other_headers, json={"events": [earliest]}).status_code == 200
+    unknown = f"{API}/logins/unknown"
+    row, = cabinet.get(unknown).json()["items"]
+    assert row == {
+        "login": login, "first_seen_at": "2026-11-20T08:00:00Z", "last_seen_at": "2026-11-20T11:00:00Z",
+        "last_computer_id": 1,
+    }
+
+    latest = {**earliest, "id": "latest", "occurred_at": "2026-11-20T15:00:00+03:00"}
+    assert cabinet.post(upload, headers=other_headers, json={"events": [latest]}).status_code == 200
+    assert cabinet.post(upload, headers=agent, json={"events": [
+        {**latest, "id": "late-arrival", "occurred_at": "2026-11-20T11:30:00Z"},
+    ]}).status_code == 200
+    assert cabinet.get(unknown).json()["items"] == [{
+        **row, "last_seen_at": "2026-11-20T12:00:00Z", "last_computer_id": other["computer_id"],
+    }]
 
 
 def test_computer_name_and_assignments_survive_agent_enrollment(cabinet):

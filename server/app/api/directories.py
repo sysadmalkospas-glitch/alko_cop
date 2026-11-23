@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel
-from sqlalchemy import Select, func, select, union
+from sqlalchemy import Select, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -31,7 +31,7 @@ from ..directory_schemas import (
     PositionUpdate,
     UnknownLoginOut,
 )
-from ..models import ActivitySpan, Computer, Employee, EmployeeLogin, Group, Office, Position, Screenshot, SystemEvent
+from ..models import Computer, Employee, EmployeeLogin, Group, ObservedLogin, Office, Position
 
 router = APIRouter(prefix="/api/v1", tags=["directories"], dependencies=[Depends(current_user)])
 RecordId = Annotated[int, Path(gt=0, le=MAX_DIRECTORY_ID)]
@@ -66,14 +66,20 @@ def _get[T: Base](db: Session, model: type[T], record_id: int) -> T:
     return record
 
 
-def _commit(db: Session) -> None:
+def _commit(db: Session, *, deleting: bool = False) -> None:
     try:
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "Duplicate value or conflicting directory reference",
-        ) from exc
+        sqlstate = getattr(exc.orig, "sqlstate", None)
+        sqlite_error = getattr(exc.orig, "sqlite_errorname", None)
+        if sqlstate == "23505" or sqlite_error == "SQLITE_CONSTRAINT_UNIQUE":
+            detail = "Duplicate directory value"
+        elif sqlstate == "23503" or sqlite_error == "SQLITE_CONSTRAINT_FOREIGNKEY":
+            detail = "Directory record is in use" if deleting else "Referenced directory record does not exist"
+        else:
+            detail = "Directory constraint conflict"
+        raise HTTPException(status.HTTP_409_CONFLICT, detail) from exc
 
 
 def _create[T: Base](db: Session, record: T) -> T:
@@ -91,7 +97,7 @@ def _update[T: Base](db: Session, record: T, changes: dict) -> T:
 
 def _delete(db: Session, record: Base) -> None:
     db.delete(record)
-    _commit(db)
+    _commit(db, deleting=True)
 
 
 @router.get("/offices", response_model=Page[OfficeOut])
@@ -207,7 +213,7 @@ def list_employee_logins(employee_id: RecordId, db: SessionDep, params: ListQuer
 @router.post("/employees/{employee_id}/logins", response_model=EmployeeLoginOut, status_code=status.HTTP_201_CREATED)
 def bind_employee_login(employee_id: RecordId, payload: EmployeeLoginCreate, db: SessionDep) -> EmployeeLogin:
     _get(db, Employee, employee_id)
-    return _create(db, EmployeeLogin(employee_id=employee_id, login=payload.login))
+    return _create(db, EmployeeLogin(employee_id=employee_id, login=payload.login, login_key=payload.login.casefold()))
 
 
 @router.delete("/employees/{employee_id}/logins/{login_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -222,12 +228,9 @@ def unbind_employee_login(employee_id: RecordId, login_id: RecordId, db: Session
 
 @router.get("/logins/unknown", response_model=Page[UnknownLoginOut])
 def list_unknown_logins(db: SessionDep, params: ListQuery):
-    observed = union(select(ActivitySpan.login), select(SystemEvent.login), select(Screenshot.login)).subquery()
-    login = observed.c.login
-    binding_exists = select(EmployeeLogin.id).where(EmployeeLogin.login == login).exists()
-    statement = select(login).where(func.trim(login) != "", ~binding_exists)
-    page = _page(db, statement, params, login, login)
-    return {**page, "items": [{"login": value} for value in page["items"]]}
+    binding_exists = select(EmployeeLogin.id).where(EmployeeLogin.login_key == ObservedLogin.login_key).exists()
+    statement = select(ObservedLogin).where(~binding_exists)
+    return _page(db, statement, params, ObservedLogin.login, ObservedLogin.login_key)
 
 
 @router.get("/computers", response_model=Page[ComputerOut])
