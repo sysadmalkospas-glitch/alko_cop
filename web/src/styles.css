@@ -1,0 +1,131 @@
+:root {
+  color: #182624;
+  background: #f4f7f6;
+}
+
+body {
+  margin: 0;
+}
+
+.login-page,
+.session-status {
+  min-height: 100dvh;
+  background: #f4f7f6;
+}
+
+.login-page {
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: radial-gradient(ellipse at 30% 10%, #e0eee9, #f4f7f6 70%);
+}
+
+.login-card {
+  width: min(100%, 26rem);
+  padding: clamp(1.5rem, 5vw, 2.5rem);
+  box-shadow: 0 18px 56px #173b3010;
+}
+
+.login-heading {
+  font-size: 1.8rem;
+  line-height: 1.2;
+  letter-spacing: -0.035em;
+}
+
+.cabinet-header {
+  background-color: #112828;
+  border-bottom: 1px solid #284343;
+}
+
+.brand-link {
+  color: #fff;
+  font-size: 1.2rem;
+  font-weight: 760;
+  letter-spacing: -0.04em;
+  text-decoration: none;
+}
+
+.cabinet-user {
+  max-width: min(28vw, 14rem);
+  overflow: hidden;
+  color: #d5eae2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cabinet-navbar {
+  overflow-y: auto;
+  background-color: #fff;
+}
+
+.nav-heading {
+  margin: 0.35rem 0.65rem 0.5rem;
+  color: #4d6761;
+  font-size: 0.75rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nav-link {
+  display: block;
+  margin-bottom: 0.125rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 0.45rem;
+  color: #294740;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  text-decoration: none;
+}
+
+.nav-link:hover {
+  background: #f1f6f3;
+}
+
+.nav-link[aria-current="page"] {
+  background: #e4f1ec;
+  color: #195644;
+  font-weight: 700;
+}
+
+.nav-divider {
+  margin: 1rem 0.65rem 0.5rem;
+  border-top: 1px solid #dbe6e2;
+}
+
+.cabinet-main {
+  background-color: #f4f7f6;
+}
+
+.cabinet-content {
+  max-width: 75rem;
+  margin-inline: auto;
+}
+
+.page-heading {
+  font-size: clamp(1.65rem, 4vw, 2.35rem);
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+}
+
+.section-title {
+  font-size: 1.05rem;
+}
+
+.empty-panel {
+  display: grid;
+  min-height: 9.5rem;
+  place-items: center;
+  text-align: center;
+}
+
+.session-status {
+  padding: 1rem;
+  text-align: center;
+}
+
+@media (max-width: 30em) {
+  .cabinet-user {
+    display: none;
+  }
+}

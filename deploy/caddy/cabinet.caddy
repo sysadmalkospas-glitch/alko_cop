@@ -1,0 +1,16 @@
+@server path /api /api/* /health /health/ /docs /docs/* /redoc /redoc/ /openapi.json
+handle @server {
+    reverse_proxy server:8000
+}
+
+handle /assets/* {
+    root * /srv/alkocop
+    file_server
+}
+
+handle {
+    root * /srv/alkocop
+    header Cache-Control "no-cache"
+    try_files {path} /index.html
+    file_server
+}
