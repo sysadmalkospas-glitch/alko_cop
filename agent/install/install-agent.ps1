@@ -9,13 +9,20 @@
 param(
     [Parameter(Mandatory)] [string] $ServerUrl,
     [Parameter(Mandatory)] [string] $EnrollKey,
-    [string] $SourceDir = $PSScriptRoot,
+    [string] $SourceDir,
     [string] $InstallDir = "$env:ProgramFiles\AlkoCop",
     [string] $DataDir = "$env:ProgramData\AlkoCop"
 )
 
 $ErrorActionPreference = 'Stop'
 $serviceName = 'AlkoCopAgent'
+
+if (-not $SourceDir) {
+    $SourceDir = $PSScriptRoot
+}
+if (-not $SourceDir) {
+    throw 'Cannot determine the agent package directory. Pass the extracted directory as -SourceDir.'
+}
 
 foreach ($name in @('AlkoCopAgentService.exe', 'AlkoCopCollector.exe')) {
     if (-not (Test-Path -LiteralPath (Join-Path $SourceDir $name) -PathType Leaf)) {

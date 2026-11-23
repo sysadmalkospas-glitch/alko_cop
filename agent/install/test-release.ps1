@@ -23,41 +23,36 @@ foreach ($app in @('AlkoCopAgentService', 'AlkoCopCollector')) {
 }
 
 $serverUrl = 'http://127.0.0.1:17819/'
-$receiver = Start-Job -ArgumentList $serverUrl -ScriptBlock {
-    param($Url)
-    $ErrorActionPreference = 'Stop'
-    $listener = [System.Net.HttpListener]::new()
-    try {
-        $listener.Prefixes.Add($Url)
-        $listener.Start()
-        $context = $listener.GetContext()
-        $path = $context.Request.Url.AbsolutePath
-        $reader = [System.IO.StreamReader]::new($context.Request.InputStream)
-        $request = $reader.ReadToEnd() | ConvertFrom-Json
-        $reader.Dispose()
-        $context.Response.StatusCode = 503
-        $context.Response.Close()
-        if ($path -ne '/api/agent/v1/enroll') {
-            throw 'Expected an enrollment request from the installed agent.'
-        }
-        $request.agent_version
-    } finally {
-        $listener.Close()
-    }
-}
-
+$listener = [System.Net.HttpListener]::new()
+$listener.Prefixes.Add($serverUrl)
 $installer = Join-Path $sourceDir 'install-agent.ps1'
 $uninstaller = Join-Path $sourceDir 'uninstall-agent.ps1'
 $powershellFlags = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File')
+$testStarted = Get-Date
 try {
+    $listener.Start()
+    $pendingRequest = $listener.GetContextAsync()
+    Write-Host 'Installing the ZIP using its default package directory.'
     & powershell.exe @powershellFlags $installer -ServerUrl $serverUrl -EnrollKey 'ci-only' -InstallDir $installDir -DataDir $dataDir
     if ((Get-Service -Name $serviceName).Status -ne 'Running') {
         throw 'The installed agent service did not start.'
     }
-    if (-not (Wait-Job -Job $receiver -Timeout 60)) {
+    if (-not $pendingRequest.Wait(60000)) {
         throw 'The installed agent did not attempt to enroll.'
     }
-    $actualVersion = Receive-Job -Job $receiver
+    $context = $pendingRequest.GetAwaiter().GetResult()
+    if ($context.Request.Url.AbsolutePath -ne '/api/agent/v1/enroll') {
+        throw 'Expected an enrollment request from the installed agent.'
+    }
+    $reader = [System.IO.StreamReader]::new($context.Request.InputStream)
+    try {
+        $request = $reader.ReadToEnd() | ConvertFrom-Json
+    } finally {
+        $reader.Dispose()
+        $context.Response.StatusCode = 503
+        $context.Response.Close()
+    }
+    $actualVersion = $request.agent_version
     if ($actualVersion -cne $Version) {
         throw "Expected agent_version '$Version', got '$actualVersion'."
     }
@@ -74,8 +69,14 @@ try {
     if (Test-Path -LiteralPath $dataDir) {
         throw 'The agent state directory was expected to be removed with -RemoveData.'
     }
+} catch {
+    Get-WinEvent -FilterHashtable @{ LogName = 'Application', 'System'; StartTime = $testStarted } -ErrorAction SilentlyContinue |
+        Where-Object Message -Match 'AlkoCopAgent|AlkoCop Agent' |
+        Format-List TimeCreated, ProviderName, Id, Message |
+        Out-Host
+    throw
 } finally {
-    Remove-Job -Job $receiver -Force
+    $listener.Close()
     if ((Get-Service -Name $serviceName -ErrorAction SilentlyContinue) -or
         (Test-Path -LiteralPath (Join-Path $installDir '.alkocop-install')) -or
         (Test-Path -LiteralPath (Join-Path $dataDir '.alkocop-data'))) {
