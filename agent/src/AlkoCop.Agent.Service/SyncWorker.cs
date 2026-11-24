@@ -28,6 +28,7 @@ public sealed class SyncWorker(
             try
             {
                 var token = await EnsureEnrolledAsync(stoppingToken);
+                runtime.ServerToken = token;
                 if (DateTimeOffset.UtcNow - lastConfig > ConfigRefresh)
                 {
                     runtime.Config = await client.GetConfigAsync(token, stoppingToken);
@@ -49,6 +50,7 @@ public sealed class SyncWorker(
             catch (AgentUnauthorizedException)
             {
                 logger.LogWarning("Server rejected the agent token, enrolling again");
+                runtime.ServerToken = null;
                 var state = runtime.State.LoadOrCreate();
                 runtime.State.Save(state with { Token = null });
             }
@@ -77,7 +79,7 @@ public sealed class SyncWorker(
     private async Task<string> EnsureEnrolledAsync(CancellationToken ct)
     {
         var state = runtime.State.LoadOrCreate();
-        if (!string.IsNullOrEmpty(state.Token))
+        if (!string.IsNullOrEmpty(state.Token) && !runtime.IsHeartbeatTokenRejected(state.Token))
         {
             return state.Token;
         }

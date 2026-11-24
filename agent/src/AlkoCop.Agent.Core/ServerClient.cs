@@ -54,6 +54,16 @@ public sealed class ServerClient(HttpClient http)
         using var resp = await SendAsync(req, ct);
     }
 
+    public async Task SendHeartbeatAsync(string token, HeartbeatRequest heartbeat, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, "api/agent/v1/heartbeat")
+        {
+            Content = JsonContent.Create(heartbeat, options: AgentJson.Options),
+        };
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var resp = await SendAsync(req, ct);
+    }
+
     private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage req, CancellationToken ct)
     {
         var resp = await http.SendAsync(req, ct);

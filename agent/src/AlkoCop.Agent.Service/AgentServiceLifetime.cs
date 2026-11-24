@@ -26,6 +26,21 @@ public sealed class AgentServiceLifetime : WindowsServiceLifetime
 
     protected override void OnSessionChange(SessionChangeDescription changeDescription)
     {
+        switch (changeDescription.Reason)
+        {
+            case SessionChangeReason.SessionLock:
+                _runtime.LiveSessions.SetPaused(changeDescription.SessionId, true);
+                break;
+            case SessionChangeReason.SessionUnlock:
+            case SessionChangeReason.SessionLogon:
+            case SessionChangeReason.SessionLogoff:
+            case SessionChangeReason.ConsoleDisconnect:
+            case SessionChangeReason.RemoteDisconnect:
+            case SessionChangeReason.ConsoleConnect:
+            case SessionChangeReason.RemoteConnect:
+                _runtime.LiveSessions.SetPaused(changeDescription.SessionId, false);
+                break;
+        }
         var kind = changeDescription.Reason switch
         {
             SessionChangeReason.SessionLogon => SystemEventKinds.Logon,
