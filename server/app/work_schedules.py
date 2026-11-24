@@ -1,6 +1,6 @@
 """Resolve the shift that starts on an employee's local work date."""
 
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
 from pydantic import TypeAdapter
@@ -8,28 +8,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .models import Employee, Group, Office, WorkSchedule
-from .office_timezones import office_timezone
+from .office_timezones import local_instant, office_timezone
 from .work_schedule_schemas import EmployeeWorkPlan, PlannedShift, WorkPattern
 
 _pattern = TypeAdapter(WorkPattern)
-
-
-def _instant(local: datetime, zone: ZoneInfo) -> datetime:
-    first = local.replace(tzinfo=zone, fold=0).astimezone(UTC)
-    if first.astimezone(zone).replace(tzinfo=None) == local:
-        return first
-
-    # During a forward clock change, clamp nonexistent wall times to the first
-    # valid instant. Both endpoints in the gap then produce no phantom work.
-    lower = local.replace(tzinfo=zone, fold=1).astimezone(UTC)
-    upper = first
-    while upper - lower > timedelta(microseconds=1):
-        midpoint = lower + (upper - lower) // 2
-        if midpoint.astimezone(zone).replace(tzinfo=None) < local:
-            lower = midpoint
-        else:
-            upper = midpoint
-    return upper
 
 
 def get_employee_work_plan(db: Session, employee_id: int, day: date) -> EmployeeWorkPlan | None:
@@ -49,7 +31,12 @@ def get_employee_work_plan(db: Session, employee_id: int, day: date) -> Employee
     if result is None:
         return None
     schedule, timezone_name, employee_schedule_id = result
-    zone = office_timezone(timezone_name)
+    return resolve_work_plan(schedule, office_timezone(timezone_name), employee_schedule_id, day)
+
+
+def resolve_work_plan(
+    schedule: WorkSchedule | None, zone: ZoneInfo, employee_schedule_id: int | None, day: date,
+) -> EmployeeWorkPlan:
     if schedule is None:
         return EmployeeWorkPlan(date=day, timezone=zone.key)
 
@@ -66,14 +53,14 @@ def get_employee_work_plan(db: Session, employee_id: int, day: date) -> Employee
 
     midnight = datetime.combine(day, time.min)
     start, end = shift.shift_offsets()
-    starts_at, ends_at = _instant(midnight + start, zone), _instant(midnight + end, zone)
+    starts_at, ends_at = local_instant(midnight + start, zone), local_instant(midnight + end, zone)
     if starts_at == ends_at:
         return work_plan
 
     pause = shift.break_offsets()
     break_starts_at = break_ends_at = None
     if pause is not None:
-        break_starts_at, break_ends_at = (_instant(midnight + offset, zone) for offset in pause)
+        break_starts_at, break_ends_at = (local_instant(midnight + offset, zone) for offset in pause)
         if break_starts_at == break_ends_at:
             break_starts_at = break_ends_at = None
 
