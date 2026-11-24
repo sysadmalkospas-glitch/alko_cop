@@ -1,3 +1,5 @@
+import { cabinetFetch } from "../auth";
+
 export interface Office {
   id: number;
   name: string;
@@ -80,20 +82,32 @@ const errorMessages = {
   422: "Проверьте значения полей.",
 } as const;
 
+const conflictMessages = new Map([
+  ["Duplicate directory value", "Такая запись уже существует."],
+  ["Directory record is in use", "Запись используется в других справочниках."],
+  ["Referenced directory record does not exist", "Связанная запись больше недоступна. Обновите список."],
+]);
+
 class DirectoryError extends Error {
-  constructor(readonly status: number) {
+  constructor(readonly status: number, readonly conflict?: string) {
     super("Directory request failed");
   }
 }
 
 export function directoryErrorMessage(error: unknown) {
+  if (error instanceof DirectoryError && error.conflict) return error.conflict;
   return error instanceof DirectoryError && error.status in errorMessages
     ? errorMessages[error.status as keyof typeof errorMessages]
     : "Не удалось выполнить запрос. Попробуйте ещё раз.";
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api/v1/${path}`, init);
+  const response = await cabinetFetch(`/api/v1/${path}`, init);
+  if (response.status === 409) {
+    const body: { detail?: unknown } | null = await response.json().catch(() => null);
+    const detail = body?.detail;
+    throw new DirectoryError(409, typeof detail === "string" ? conflictMessages.get(detail) : undefined);
+  }
   if (!response.ok) throw new DirectoryError(response.status);
   if (response.status === 204) return undefined as T;
   return response.json();

@@ -1,4 +1,4 @@
-import { Badge, Button, Checkbox, Stack, Text, TextInput } from "@mantine/core";
+import { Badge, Button, Checkbox, Select, Stack, Text, TextInput } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { type Employee, formId, formText, listAllDirectory } from "./api";
 import { type Choice, DirectoryOptionsStatus, DirectorySelect } from "./DirectoryEditor";
@@ -6,6 +6,41 @@ import { DateCell } from "./DateCell";
 import { EmployeeLoginsDialog } from "./Logins";
 import { useDirectoryRequest } from "./loading";
 import { ManagedDirectory } from "./ManagedDirectory";
+
+const DEFAULT_TIMEZONE = "Europe/Moscow";
+const timezones = [...new Set([
+  "Europe/Kaliningrad", DEFAULT_TIMEZONE, "Europe/Samara", "Asia/Yekaterinburg",
+  "Asia/Omsk", "Asia/Krasnoyarsk", "Asia/Irkutsk", "Asia/Yakutsk",
+  "Asia/Vladivostok", "Asia/Magadan", "Asia/Kamchatka", "UTC",
+  ...(typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : []),
+])];
+
+function OfficeTimezoneField({ saved }: { saved?: string }) {
+  let selected = saved ?? DEFAULT_TIMEZONE;
+  let options = timezones;
+  if (!timezones.includes(selected)) {
+    try {
+      // Keep valid aliases returned by the server even if the browser omits them from its list.
+      Intl.DateTimeFormat(undefined, { timeZone: selected });
+      options = [selected, ...timezones];
+    } catch {
+      selected = "";
+    }
+  }
+  return (
+    <Select
+      required searchable allowDeselect={false}
+      name="timezone"
+      label="Часовой пояс"
+      data={options}
+      defaultValue={selected || null}
+      description={!selected && saved ? `Сохранённый пояс «${saved}» нужно заменить.` : undefined}
+      placeholder="Выберите часовой пояс"
+      nothingFoundMessage="Нет подходящих часовых поясов"
+      limit={50}
+    />
+  );
+}
 
 export function OfficesDirectory() {
   return (
@@ -20,14 +55,7 @@ export function OfficesDirectory() {
       fields={(row) => (
         <>
           <TextInput required name="name" label="Название" defaultValue={row?.name} maxLength={200} data-autofocus />
-          <TextInput
-            required
-            name="timezone"
-            label="Часовой пояс"
-            description="Название часового пояса IANA"
-            defaultValue={row?.timezone ?? "Europe/Moscow"}
-            maxLength={64}
-          />
+          <OfficeTimezoneField saved={row?.timezone} />
         </>
       )}
       payload={(data) => ({ name: formText(data, "name"), timezone: formText(data, "timezone") })}
