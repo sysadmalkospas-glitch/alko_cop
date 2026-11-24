@@ -5,12 +5,13 @@
 чтобы один сотрудник мог работать на разных компьютерах и под разными логинами.
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -272,3 +273,31 @@ class LoginThrottle(Base):
     key: Mapped[str] = mapped_column(String(70), primary_key=True)
     attempts: Mapped[int] = mapped_column(Integer)
     window_ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class DailyTotal(Base):
+    """Aggregated computer activity by employee and office-local date."""
+
+    __tablename__ = "daily_totals"
+
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id", ondelete="CASCADE"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True, index=True)
+    first_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    total_seconds: Mapped[int] = mapped_column(Integer)
+    active_seconds: Mapped[int] = mapped_column(Integer)
+    idle_seconds: Mapped[int] = mapped_column(Integer)
+    late_seconds: Mapped[int] = mapped_column(Integer)
+    early_departure_seconds: Mapped[int] = mapped_column(Integer)
+    overtime_seconds: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class DailyTotalsPending(Base):
+    """UTC date range awaiting aggregation, with an inclusive last date."""
+
+    __tablename__ = "daily_totals_pending"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    next_day: Mapped[date] = mapped_column(Date, index=True)
+    last_day: Mapped[date] = mapped_column(Date)
