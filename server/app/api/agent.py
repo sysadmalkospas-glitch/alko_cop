@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 
 from ..config import Settings, get_settings
 from ..db import get_session
-from ..models import ActivitySpan, Computer, MonitoringProfile, Screenshot, SystemEvent, utcnow
+from ..jobs.daily_totals import enqueue_daily_totals
+from ..models import ActivitySpan, Computer, MonitoringProfile, Screenshot, SystemEvent, as_utc, utcnow
 from ..observed_logins import record_observed_logins
 from ..schemas import (
     ActivityBatch,
@@ -129,8 +130,8 @@ def upload_activity(batch: ActivityBatch, computer: ComputerDep, db: SessionDep)
             client_id=s.id,
             login=s.login,
             session_id=s.session_id,
-            started_at=s.started_at,
-            ended_at=s.ended_at,
+            started_at=as_utc(s.started_at),
+            ended_at=as_utc(s.ended_at),
             is_idle=s.is_idle,
             process_name=s.process_name,
             window_title=s.window_title,
@@ -156,6 +157,7 @@ def upload_activity(batch: ActivityBatch, computer: ComputerDep, db: SessionDep)
             ((span.login, span.started_at, span.ended_at) for span in new_spans.values()),
             ((event.login, event.occurred_at, event.occurred_at) for event in new_events.values()),
         ))
+        enqueue_daily_totals(db, ((span.started_at, span.ended_at) for span in new_spans.values()))
         db.commit()
     except IntegrityError:
         # Параллельная отправка той же пачки: агент повторит, дубли отсеются.

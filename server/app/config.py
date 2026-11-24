@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     enroll_key: str = "change-me"
     # Максимальный размер одного скриншота, байт.
     max_screenshot_bytes: int = 5 * 1024 * 1024
+    daily_totals_interval_seconds: int = Field(default=300, ge=1)
     # Сессии веб-кабинета. Secure-cookie по умолчанию требует HTTPS.
     auth_cookie_secure: bool = True
     auth_session_ttl_seconds: int = Field(default=43200, ge=60, le=604800)
