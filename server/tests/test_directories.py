@@ -33,6 +33,7 @@ def create(cabinet, path, **payload):
     ("GET", "employees/1/logins"), ("POST", "employees/1/logins"),
     ("DELETE", "employees/1/logins/1"), ("GET", "logins/unknown"),
     ("GET", "computers"), ("PATCH", "computers/1"),
+    ("GET", "monitoring-profiles"),
 ])
 def test_directories_require_cabinet_session(client, agent, method, path):
     for headers in ({}, agent):
@@ -46,6 +47,18 @@ def test_directory_rejects_cross_origin_mutation(cabinet):
     )
     assert response.status_code == 403
     assert cabinet.get(f"{API}/offices").json()["total"] == 0
+
+
+def test_monitoring_profile_options(cabinet):
+    with Session(get_engine()) as db:
+        profile = MonitoringProfile(name="Пилот", is_default=True)
+        db.add_all([profile, MonitoringProfile(name="Другой")])
+        db.commit()
+        expected = {"id": profile.id, "name": "Пилот", "is_default": True}
+
+    response = cabinet.get(f"{API}/monitoring-profiles", params={"q": "ПИЛОТ", "limit": 1})
+    assert response.status_code == 200
+    assert response.json() == {"items": [expected], "total": 1, "limit": 1, "offset": 0}
 
 
 @pytest.mark.parametrize("resource", ["offices", "groups", "positions"])

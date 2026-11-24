@@ -1,0 +1,38 @@
+.directory-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  border-bottom: 1px solid #dbe6e2;
+}
+
+.directory-nav a {
+  border-radius: 0.45rem 0.45rem 0 0;
+  border-bottom: 2px solid transparent;
+  padding: 0.5rem 0.65rem;
+  color: #294740;
+  font-size: 0.875rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.directory-nav a:hover {
+  background-color: #eef5f1;
+}
+
+.directory-nav a[aria-current="page"] {
+  border-bottom-color: #226b56;
+  color: #195644;
+}
+
+.directory-search {
+  display: flex;
+  flex: 1 1 14rem;
+  align-items: end;
+  gap: 0.5rem;
+  max-width: 28rem;
+}
+
+.directory-search > :first-child {
+  flex: 1;
+  min-width: 0;
+}

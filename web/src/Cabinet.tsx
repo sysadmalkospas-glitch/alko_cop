@@ -1,6 +1,6 @@
 import { Alert, AppShell, Burger, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { ReportFilters } from "./ReportFilters";
 import { signOut } from "./auth";
@@ -22,6 +22,7 @@ const reports = [
 ];
 
 const defaultReport = "/reports/time-tracking";
+const SettingsPage = lazy(() => import("./settings/SettingsPage"));
 
 export function Cabinet({ user, onLogout }: { user: CabinetUser; onLogout: () => void }) {
   const { search } = useLocation();
@@ -95,7 +96,11 @@ export function Cabinet({ user, onLogout }: { user: CabinetUser; onLogout: () =>
           <Routes>
             <Route path="/" element={<Navigate to={home} replace />} />
             <Route path="/reports/:slug" element={<ReportPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings/*" element={(
+              <Suspense fallback={<Text role="status">Загрузка настроек</Text>}>
+                <SettingsPage />
+              </Suspense>
+            )} />
             <Route path="*" element={<MissingPage />} />
           </Routes>
         </Stack>
@@ -121,17 +126,6 @@ function ReportPage() {
           </Paper>
         </>
       )}
-    </>
-  );
-}
-
-function SettingsPage() {
-  return (
-    <>
-      <Title order={1} className="page-heading">Настройки</Title>
-      <Paper withBorder p="lg" className="empty-panel">
-        <Text c="dimmed">Настройки появятся после подключения справочников.</Text>
-      </Paper>
     </>
   );
 }
