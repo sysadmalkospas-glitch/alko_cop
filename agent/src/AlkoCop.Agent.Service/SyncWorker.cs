@@ -19,6 +19,7 @@ public sealed class SyncWorker(
     {
         runtime.RecordEvent(SystemEventKinds.AgentStart, null);
         var uploader = new OutboxUploader(runtime.Queue, client);
+        var screenshotUploader = new ScreenshotUploader(runtime.Screenshots, client);
         var lastConfig = DateTimeOffset.MinValue;
         var backoff = TimeSpan.FromSeconds(5);
 
@@ -33,6 +34,7 @@ public sealed class SyncWorker(
                     lastConfig = DateTimeOffset.UtcNow;
                 }
                 var sent = await uploader.DrainAsync(token, stoppingToken);
+                sent += await screenshotUploader.DrainAsync(token, TimeSpan.FromSeconds(10), stoppingToken);
                 if (sent > 0)
                 {
                     logger.LogDebug("Uploaded {Count} records", sent);

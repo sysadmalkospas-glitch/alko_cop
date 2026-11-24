@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -34,6 +35,23 @@ public sealed class ServerClient(HttpClient http)
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         using var resp = await SendAsync(req, ct);
         return (await resp.Content.ReadFromJsonAsync<BatchResult>(AgentJson.Options, ct))!;
+    }
+
+    public async Task UploadScreenshotAsync(string token, QueuedScreenshot item, CancellationToken ct)
+    {
+        var frame = item.Frame;
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent(frame.Id.ToString("N")), "id");
+        form.Add(new StringContent(item.Login), "login");
+        form.Add(new StringContent(frame.TakenAt.ToString("O", CultureInfo.InvariantCulture)), "taken_at");
+        form.Add(new StringContent(frame.Monitor.ToString(CultureInfo.InvariantCulture)), "monitor");
+        var image = new ByteArrayContent(frame.Data);
+        image.Headers.ContentType = new MediaTypeHeaderValue(frame.ContentType);
+        form.Add(image, "file", "screenshot");
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "api/agent/v1/screenshots") { Content = form };
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var resp = await SendAsync(req, ct);
     }
 
     private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage req, CancellationToken ct)
