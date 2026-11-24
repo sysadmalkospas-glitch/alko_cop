@@ -5,6 +5,7 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Version>0.1.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Company>AlkoCop</Company>
     <!-- Позволяет собирать Windows-проекты на Linux (CI, разработка). -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>

@@ -1,0 +1,89 @@
+name: Windows agent package
+
+on:
+  push:
+    tags: ['agent-v*']
+  pull_request:
+    paths:
+      - 'agent/**'
+      - '.github/workflows/agent-release.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Determine version
+        id: version
+        shell: pwsh
+        run: |
+          $version = '0.0.0-ci.1'
+          $prerelease = $true
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+              if ($env:GITHUB_REF_NAME -cnotmatch '\Aagent-v(?<version>[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)\z') {
+                  throw 'Expected an agent-vMAJOR.MINOR.PATCH tag with optional SemVer suffix.'
+              }
+              $version = $Matches.version
+              $prerelease = ($version -split '\+', 2)[0].Contains('-')
+          }
+          "value=$version" >> $env:GITHUB_OUTPUT
+          "prerelease=$($prerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+      - name: Publish and archive the Windows agent
+        shell: pwsh
+        working-directory: agent
+        env:
+          AGENT_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $staging = Join-Path $env:RUNNER_TEMP 'alkocop-agent'
+          foreach ($project in @('Service', 'Collector')) {
+              dotnet publish "src/AlkoCop.Agent.$project" -c Release -r win-x64 --self-contained -o $staging "-p:Version=$env:AGENT_VERSION"
+          }
+          Copy-Item -LiteralPath install/install-agent.ps1, install/uninstall-agent.ps1 -Destination $staging
+          Compress-Archive -Path "$staging/*" -DestinationPath (Join-Path $env:RUNNER_TEMP 'alkocop-agent-win-x64.zip')
+      - name: Install, check registration version, and uninstall the ZIP
+        shell: pwsh
+        env:
+          AGENT_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          ./agent/install/test-release.ps1 -Archive (Join-Path $env:RUNNER_TEMP 'alkocop-agent-win-x64.zip') -Version $env:AGENT_VERSION
+      - uses: actions/upload-artifact@v4
+        with:
+          name: alkocop-agent-win-x64
+          path: ${{ runner.temp }}/alkocop-agent-win-x64.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  release:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: agent-release-${{ github.ref }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: alkocop-agent-win-x64
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          AGENT_VERSION: ${{ needs.package.outputs.version }}
+          AGENT_PRERELEASE: ${{ needs.package.outputs.prerelease }}
+        run: |
+          release_flags=(--verify-tag --title "AlkoCop Agent $AGENT_VERSION" --generate-notes)
+          if [[ "$AGENT_PRERELEASE" == "true" ]]; then
+            release_flags+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" alkocop-agent-win-x64.zip "${release_flags[@]}"
