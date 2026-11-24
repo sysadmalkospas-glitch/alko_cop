@@ -6,6 +6,7 @@ from .api import agent, directories, work_schedules
 from .auth import router as auth_router
 from .config import get_settings
 from .db import init_engine
+from .api.day_chronology import router as day_chronology_router
 
 
 @asynccontextmanager
@@ -21,6 +22,7 @@ app.include_router(agent.router)
 app.include_router(auth_router)
 app.include_router(work_schedules.router)
 app.include_router(directories.router)
+app.include_router(day_chronology_router)
 
 
 @app.get("/health")

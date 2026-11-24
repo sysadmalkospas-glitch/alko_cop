@@ -13,11 +13,14 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     String,
     Text,
     UniqueConstraint,
+    func,
+    literal_column,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -178,6 +181,20 @@ class ActivitySpan(Base):
     process_name: Mapped[str | None] = mapped_column(String(260))
     window_title: Mapped[str | None] = mapped_column(Text)
     url: Mapped[str | None] = mapped_column(Text)
+
+
+def postgres_activity_span_range():
+    # Preserve zero-length spans and tolerate inverted bounds in legacy rows.
+    return func.tstzrange(
+        ActivitySpan.started_at, func.greatest(ActivitySpan.started_at, ActivitySpan.ended_at),
+        literal_column("'[]'"),
+    )
+
+
+Index(
+    "ix_activity_spans_time_range", postgres_activity_span_range(), postgresql_using="gist",
+    info={"postgresql_only": True},
+).ddl_if(dialect="postgresql")
 
 
 class SystemEvent(Base):

@@ -10,7 +10,7 @@
     "dev": "vite",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/filters.test.ts",
+    "test": "node --test src/*.test.ts",
     "build": "vite build"
   },
   "dependencies": {
