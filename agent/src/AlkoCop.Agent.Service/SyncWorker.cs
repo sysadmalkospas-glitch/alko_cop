@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Runtime.InteropServices;
 using AlkoCop.Agent.Core;
 using Microsoft.Extensions.Options;
@@ -86,7 +87,7 @@ public sealed class SyncWorker(
                 state.MachineId,
                 Environment.MachineName,
                 RuntimeInformation.OSDescription,
-                typeof(SyncWorker).Assembly.GetName().Version?.ToString()),
+                typeof(SyncWorker).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion),
             ct);
         runtime.State.Save(state with { Token = resp.Token, ComputerId = resp.ComputerId });
         logger.LogInformation("Enrolled as computer {ComputerId}", resp.ComputerId);

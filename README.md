@@ -41,6 +41,7 @@
 | Каталог | Что внутри |
 |---|---|
 | `server/` | Сервер на Python (FastAPI, SQLAlchemy, PostgreSQL) и тесты |
+| `web/` | Веб-кабинет на React и TypeScript |
 | `agent/src/AlkoCop.Agent.Core` | Общая логика агента: отрезки активности, очередь, клиент API |
 | `agent/src/AlkoCop.Agent.Service` | Служба Windows |
 | `agent/src/AlkoCop.Agent.Collector` | Сборщик в сессии пользователя |
@@ -186,7 +187,8 @@ docker compose exec server python -m app.cli create-admin
 из `server/` с настроенным подключением к БД. Команда запросит логин,
 пароль (12–1024 символа) и его подтверждение без отображения пароля.
 Если пользователь кабинета уже существует, команда не создаст ещё одного.
-Пароли по умолчанию отсутствуют.
+Пароли по умолчанию отсутствуют. Откройте главную страницу сервера по HTTPS
+и войдите под созданным пользователем.
 
 API кабинета:
 
@@ -212,9 +214,25 @@ FastAPI. На рабочем сервере не отключайте эту п�
 Для новых API кабинета используйте зависимость `app.auth.current_user`
 (или тип `app.auth.CurrentUser`); без действующей сессии запрос отклоняется.
 
+### Разработка веб-кабинета
+
+Нужен Node.js 24. Запустите локальный FastAPI на порту 8000 с
+`ALKOCOP_AUTH_COOKIE_SECURE=false`. Vite проксирует API на этот сервер,
+чтобы браузер обращался к кабинету и API с одного адреса.
+
+```bash
+cd web
+npm ci
+npm run dev
+```
+
+Проверки кабинета: `npm run lint`, `npm run typecheck`, `npm test`,
+`npm run build`. При развёртывании Docker Compose собирает кабинет
+в статические файлы и раздаёт их через Caddy.
+
 ## Агент
 
-Нужен .NET SDK 10.
+Для разработки нужен .NET SDK 10:
 
 ```bash
 cd agent
@@ -223,14 +241,34 @@ dotnet publish src/AlkoCop.Agent.Service   -c Release -r win-x64 --self-containe
 dotnet publish src/AlkoCop.Agent.Collector -c Release -r win-x64 --self-contained -o publish
 ```
 
-Установка на ПК сотрудника (PowerShell от администратора):
+Релизы Windows-агента собираются в GitHub Actions по тегам вида
+`agent-v1.2.3` или `agent-v1.2.3-rc.1`. После сборки и проверки ZIP
+`alkocop-agent-win-x64.zip` появляется в соответствующем GitHub Release.
+Версия из тега передаётся на сервер при регистрации агента.
+
+Для установки распакуйте весь ZIP на ПК с Windows x64. Устанавливать .NET
+на этот ПК не нужно. Из распакованного каталога запустите PowerShell от
+администратора:
 
 ```powershell
-.\install-agent.ps1 -ServerUrl https://alkocop.internal/ -EnrollKey <ключ> -SourceDir .\publish
+.\install-agent.ps1 -ServerUrl 'https://alkocop.internal/' -EnrollKey '<ключ>'
 ```
 
-Скрипт ставит службу с автозапуском и перезапуском при сбое и закрывает
-файлы агента от обычных пользователей.
+Скрипт устанавливает службу с автозапуском и перезапуском при сбое.
+Доступ к ключу регистрации и локальным данным остаётся у SYSTEM и
+администраторов. При ручной сборке используйте скрипт из `agent/install`
+и передайте путь к каталогу `publish` через `-SourceDir`.
+
+Для удаления из распакованного каталога запустите от администратора:
+
+```powershell
+.\uninstall-agent.ps1
+```
+
+Скрипт удаляет службу и файлы программы. Очередь и данные регистрации
+сохраняются для повторной установки. Если их тоже нужно удалить, добавьте
+`-RemoveData`. Если программа уже удалена, а данные хранились в другом
+каталоге, укажите его через `-DataDir`.
 
 ### Скриншоты в Windows-агенте
 

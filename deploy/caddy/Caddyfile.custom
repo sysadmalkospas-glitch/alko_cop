@@ -7,5 +7,5 @@
 
 https://{$ALKOCOP_HOST:alkocop.internal} {
     tls /certs/tls.crt /certs/tls.key
-    reverse_proxy server:8000
+    import /etc/caddy/cabinet.caddy
 }
