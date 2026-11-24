@@ -1,20 +1,20 @@
 """Day chronology for the authenticated cabinet."""
 
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime
 from io import BytesIO
 from typing import Annotated
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, StringConstraints, field_validator
-from sqlalchemy import and_, false, func, or_, select, type_coerce
-from sqlalchemy.dialects.postgresql import TSTZRANGE, Range
+from sqlalchemy import and_, false, func, select
 from xlsxwriter import Workbook
 
 from ..auth import SessionDep, current_user
 from ..directory_schemas import MAX_DIRECTORY_ID, DirectoryId, Page
-from ..models import ActivitySpan, Employee, EmployeeLogin, Group, Office, as_utc, postgres_activity_span_range
+from ..models import ActivitySpan, Employee, EmployeeLogin, Group, Office, as_utc
 from ..office_timezones import office_timezone
+from ..report_activity import local_day_bounds, overlapping_activity
 
 router = APIRouter(
     prefix="/api/v1/reports/day-chronology", tags=["reports"], dependencies=[Depends(current_user)],
@@ -72,11 +72,9 @@ def _employee_timezone(db: SessionDep, employee_id: int) -> ZoneInfo:
 
 def _day_bounds(day: date, zone: ZoneInfo) -> tuple[datetime, datetime]:
     try:
-        start = datetime.combine(day, time.min, zone).astimezone(timezone.utc)
-        end = datetime.combine(day + timedelta(days=1), time.min, zone).astimezone(timezone.utc)
+        return local_day_bounds(day, zone)
     except OverflowError:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Day is out of range") from None
-    return start, end
 
 
 def _employee_spans(db: SessionDep, employee_id: int, start: datetime, end: datetime):
@@ -86,14 +84,7 @@ def _employee_spans(db: SessionDep, employee_id: int, start: datetime, end: date
 
     # Spans retain the original login. Match every spelling with the same Python casefold
     # as directory bindings, including rows created before the login was linked.
-    overlap = [
-        ActivitySpan.started_at < end,
-        or_(ActivitySpan.ended_at > start, ActivitySpan.started_at == start),
-    ]
-    if db.get_bind().dialect.name == "postgresql":
-        # GiST bounds both ends of the scan without assuming a maximum span length.
-        report_day = Range(start, end, bounds="[)")
-        overlap.append(type_coerce(postgres_activity_span_range(), TSTZRANGE).overlaps(report_day))
+    overlap = overlapping_activity(db, start, end)
     spellings = db.scalars(select(ActivitySpan.login).where(*overlap).distinct())
     logins = [login for login in spellings if login.casefold() in login_keys]
     return and_(ActivitySpan.login.in_(logins), *overlap)

@@ -10,6 +10,7 @@ import {
   ChronologyError, exportChronology, fetchChronology, fetchChronologyEmployee, searchChronologyEmployees,
 } from "./dayChronologyApi";
 import type { ChronologyEmployee, ChronologyPage, ChronologyRow } from "./dayChronologyApi";
+import { readReportDay } from "./reportDate";
 
 const pageSize = 50;
 
@@ -17,19 +18,10 @@ function readEmployee(value: string | null): string | null {
   return value && /^[1-9]\d{0,9}$/.test(value) && Number(value) <= 2_147_483_647 ? value : null;
 }
 
-function readDay(value: string | null): string {
-  if (value && /^\d{4}-\d{2}-\d{2}$/.test(value) && !value.startsWith("0000")) {
-    const day = new Date(value);
-    if (Number.isFinite(day.getTime()) && day.toISOString().slice(0, 10) === value) return value;
-  }
-
-  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Moscow" }).format(new Date());
-}
-
 export function DayChronology() {
   const [params, setParams] = useSearchParams();
   const employee = readEmployee(params.get("employeeId"));
-  const day = readDay(params.get("day"));
+  const day = readReportDay(params.get("day"));
   const reportKey = (employee ?? "") + "/" + day;
 
   function select(employeeId: string, selectedDay: string) {
