@@ -65,7 +65,7 @@ class RotatingPattern(DirectoryInput):
     type: Literal["rotation"]
     anchor_date: date = Field(description="Дата первого дня цикла в часовом поясе офиса.")
     days: list[Shift | None] = Field(
-        min_length=1,
+        min_length=1, max_length=366,
         description="Дни повторяющегося цикла. null — выходной. Цикл действует и до даты отсчёта.",
     )
 

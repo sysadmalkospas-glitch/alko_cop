@@ -1,4 +1,5 @@
 import pytest
+from sqlalchemy import create_engine, text
 
 from .test_directories import API, cabinet, create  # noqa: F401 (reuse cabinet fixture)
 
@@ -45,6 +46,7 @@ def test_schedule_crud_and_validation(cabinet):
     for invalid in (
         {"pattern": {"type": "weekly", "days": [DAY_SHIFT]}},
         {"pattern": {"type": "rotation", "anchor_date": MONDAY, "days": []}},
+        {"pattern": {"type": "rotation", "anchor_date": MONDAY, "days": [None] * 367}},
         {"pattern": weekly({"start": "09:00Z", "end": "18:00"})},
         {"pattern": weekly({"start": "09:00", "end": "18:00", "break_start": "12:00"})},
         {"pattern": weekly({"start": "09:00", "end": "18:00", "break_start": "17:00", "break_end": "19:00"})},
@@ -144,7 +146,7 @@ def test_rotating_overnight_and_24h_shifts(cabinet):
     ).status_code == 422
 
 
-def test_dst_and_fallback_for_legacy_office_timezone(cabinet):
+def test_dst_and_fallback_for_legacy_office_timezone(cabinet, settings):
     office = create(cabinet, "offices", name="Тест", timezone="America/New_York")
     group = create(cabinet, "groups", name="Тест", office_id=office["id"])
     employee = create(cabinet, "employees", full_name="Иван Тестов", group_id=group["id"])
@@ -156,7 +158,16 @@ def test_dst_and_fallback_for_legacy_office_timezone(cabinet):
     assert spring["shift"]["starts_at"] == "2026-03-08T07:00:00Z"
     assert spring["shift"]["ends_at"] == "2026-03-08T07:30:00Z"
 
-    assert cabinet.patch(f"{API}/offices/{office['id']}", json={"timezone": "Legacy"}).status_code == 200
+    assert cabinet.post(f"{API}/offices", json={
+        "name": "Invalid office", "timezone": "Europe/Moskow",
+    }).status_code == 422
+    assert cabinet.patch(f"{API}/offices/{office['id']}", json={"timezone": "Legacy"}).status_code == 422
+    engine = create_engine(settings.database_url)
+    try:
+        with engine.begin() as db:
+            db.execute(text("UPDATE offices SET timezone = 'Legacy' WHERE id = :id"), {"id": office["id"]})
+    finally:
+        engine.dispose()
     fallback = read_plan(cabinet, employee, "2026-03-08")
     assert fallback["timezone"] == "Europe/Moscow"
     assert fallback["shift"]["starts_at"] == "2026-03-07T23:20:00Z"

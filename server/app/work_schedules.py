@@ -1,27 +1,17 @@
 """Resolve the shift that starts on an employee's local work date."""
 
 from datetime import UTC, date, datetime, time, timedelta
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 from pydantic import TypeAdapter
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .models import Employee, Group, Office, WorkSchedule
+from .office_timezones import office_timezone
 from .work_schedule_schemas import EmployeeWorkPlan, PlannedShift, WorkPattern
 
-DEFAULT_OFFICE_TIMEZONE = "Europe/Moscow"
 _pattern = TypeAdapter(WorkPattern)
-
-
-def _office_timezone(name: str | None) -> ZoneInfo:
-    if name:
-        try:
-            return ZoneInfo(name)
-        except (ZoneInfoNotFoundError, ValueError):
-            # Older offices could store strings that do not name an IANA timezone.
-            pass
-    return ZoneInfo(DEFAULT_OFFICE_TIMEZONE)
 
 
 def _instant(local: datetime, zone: ZoneInfo) -> datetime:
@@ -43,6 +33,11 @@ def _instant(local: datetime, zone: ZoneInfo) -> datetime:
 
 
 def get_employee_work_plan(db: Session, employee_id: int, day: date) -> EmployeeWorkPlan | None:
+    """Get the shift that starts on this local date.
+
+    When calculating daily totals, also check the previous date for a shift
+    that started before midnight and continues into this date.
+    """
     result = db.execute(
         select(WorkSchedule, Office.timezone, Employee.schedule_id)
         .select_from(Employee)
@@ -53,8 +48,8 @@ def get_employee_work_plan(db: Session, employee_id: int, day: date) -> Employee
     ).one_or_none()
     if result is None:
         return None
-    schedule, office_timezone, employee_schedule_id = result
-    zone = _office_timezone(office_timezone)
+    schedule, timezone_name, employee_schedule_id = result
+    zone = office_timezone(timezone_name)
     if schedule is None:
         return EmployeeWorkPlan(date=day, timezone=zone.key)
 
