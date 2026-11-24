@@ -23,6 +23,7 @@ const reports = [
 
 const defaultReport = "/reports/time-tracking";
 const SettingsPage = lazy(() => import("./settings/SettingsPage"));
+const DayStructurePage = lazy(() => import("./day-structure/DayStructurePage"));
 
 export function Cabinet({ user, onLogout }: { user: CabinetUser; onLogout: () => void }) {
   const { search } = useLocation();
@@ -95,6 +96,11 @@ export function Cabinet({ user, onLogout }: { user: CabinetUser; onLogout: () =>
           )}
           <Routes>
             <Route path="/" element={<Navigate to={home} replace />} />
+            <Route path="/reports/day-structure" element={(
+              <Suspense fallback={<Text role="status">Загрузка отчёта</Text>}>
+                <DayStructurePage />
+              </Suspense>
+            )} />
             <Route path="/reports/:slug" element={<ReportPage />} />
             <Route path="/settings/*" element={(
               <Suspense fallback={<Text role="status">Загрузка настроек</Text>}>

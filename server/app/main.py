@@ -7,6 +7,7 @@ from .auth import router as auth_router
 from .config import get_settings
 from .db import init_engine
 from .api.day_chronology import router as day_chronology_router
+from .api.day_structure import router as day_structure_router
 
 
 @asynccontextmanager
@@ -28,3 +29,6 @@ app.include_router(day_chronology_router)
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+app.include_router(day_structure_router)
