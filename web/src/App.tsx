@@ -2,7 +2,7 @@ import { Button, Center, Loader, Stack, Text } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { Cabinet } from "./Cabinet";
 import { Login } from "./Login";
-import { getSession } from "./auth";
+import { getSession, onSessionExpired } from "./auth";
 import type { CabinetUser } from "./auth";
 
 type Session =
@@ -12,6 +12,10 @@ type Session =
 export function App() {
   const [session, setSession] = useState<Session>({ status: "checking" });
   const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => onSessionExpired(() => {
+    setSession((current) => current.status === "signed-in" ? { status: "signed-out" } : current);
+  }), []);
 
   useEffect(() => {
     const controller = new AbortController();

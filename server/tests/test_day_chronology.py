@@ -4,11 +4,11 @@ from xml.etree import ElementTree
 from zipfile import ZipFile
 
 import pytest
-from sqlalchemy import insert
+from sqlalchemy import insert, update
 from sqlalchemy.orm import Session
 
 from app.db import get_engine
-from app.models import ActivitySpan
+from app.models import ActivitySpan, Office
 
 from .test_directories import cabinet, create
 
@@ -83,7 +83,10 @@ def test_chronology_local_day_paging_and_filters(cabinet, agent):
 
 
 def test_chronology_timezone_fallback_and_validation(cabinet):
-    office = create(cabinet, "offices", name="Office", timezone="Not/An_Office")
+    office = create(cabinet, "offices", name="Office")
+    with Session(get_engine()) as db:
+        db.execute(update(Office).where(Office.id == office["id"]).values(timezone="Not/An_Office"))
+        db.commit()
     group = create(cabinet, "groups", name="Team", office_id=office["id"])
     for group_id in (None, group["id"]):
         employee = create(cabinet, "employees", full_name="Test Employee", group_id=group_id)
@@ -94,6 +97,22 @@ def test_chronology_timezone_fallback_and_validation(cabinet):
         for invalid in ({"day": "9999-12-31"}, {"day": "0001-01-01"}, {"limit": 201}, {"offset": -1}, {"title": "\0"}):
             assert cabinet.post(f"{API}/query", json={**filters, **invalid}).status_code == 422
     assert cabinet.post(f"{API}/query", json={**filters, "employee_id": 9999}).status_code == 404
+
+
+def test_chronology_keeps_long_and_zero_length_spans(cabinet, agent):
+    employee = create(cabinet, "employees", full_name="Test Employee")
+    bind(cabinet, employee, r"clinic\staff")
+    upload(cabinet, agent, [
+        span("long", "2026-11-01T00:00:00Z", "2026-11-24T06:00:00Z", process_name="long.exe"),
+        span("point", "2026-11-23T21:00:00Z", "2026-11-23T21:00:00Z", process_name="point.exe"),
+        span("ends-at-start", "2026-11-23T20:59:00Z", "2026-11-23T21:00:00Z", process_name="before.exe"),
+        span("point-at-end", "2026-11-24T21:00:00Z", "2026-11-24T21:00:00Z", process_name="after.exe"),
+    ])
+    response = cabinet.post(f"{API}/query", json={"employee_id": employee["id"], "day": "2026-11-24"})
+    assert response.status_code == 200, response.text
+    assert [(item["process_name"], item["duration_seconds"]) for item in response.json()["items"]] == [
+        ("long.exe", 9 * 60 * 60), ("point.exe", 0),
+    ]
 
 
 def test_chronology_xlsx_exports_filtered_rows_as_literals(cabinet, agent):

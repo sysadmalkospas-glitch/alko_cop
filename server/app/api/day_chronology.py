@@ -3,22 +3,23 @@
 from datetime import date, datetime, time, timedelta, timezone
 from io import BytesIO
 from typing import Annotated
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, StringConstraints, field_validator
-from sqlalchemy import false, func, or_, select
+from sqlalchemy import and_, false, func, or_, select, type_coerce
+from sqlalchemy.dialects.postgresql import TSTZRANGE, Range
 from xlsxwriter import Workbook
 
 from ..auth import SessionDep, current_user
 from ..directory_schemas import MAX_DIRECTORY_ID, DirectoryId, Page
-from ..models import ActivitySpan, Employee, EmployeeLogin, Group, Office, as_utc
+from ..models import ActivitySpan, Employee, EmployeeLogin, Group, Office, as_utc, postgres_activity_span_range
+from ..office_timezones import office_timezone
 
 router = APIRouter(
     prefix="/api/v1/reports/day-chronology", tags=["reports"], dependencies=[Depends(current_user)],
 )
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-DEFAULT_TIMEZONE = "Europe/Moscow"
 
 
 class ChronologyFilters(BaseModel):
@@ -56,7 +57,7 @@ class ChronologyPage(Page[ChronologyRow]):
     programs: list[str]
 
 
-def _office_timezone(db: SessionDep, employee_id: int) -> ZoneInfo:
+def _employee_timezone(db: SessionDep, employee_id: int) -> ZoneInfo:
     employee = db.execute(
         select(Employee.id, Office.timezone)
         .outerjoin(Group, Employee.group_id == Group.id)
@@ -66,11 +67,7 @@ def _office_timezone(db: SessionDep, employee_id: int) -> ZoneInfo:
     if employee is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Employee not found")
 
-    try:
-        return ZoneInfo(employee.timezone or DEFAULT_TIMEZONE)
-    except (ValueError, ZoneInfoNotFoundError):
-        # Older office records may contain an invalid timezone.
-        return ZoneInfo(DEFAULT_TIMEZONE)
+    return office_timezone(employee.timezone)
 
 
 def _day_bounds(day: date, zone: ZoneInfo) -> tuple[datetime, datetime]:
@@ -89,13 +86,17 @@ def _employee_spans(db: SessionDep, employee_id: int, start: datetime, end: date
 
     # Spans retain the original login. Match every spelling with the same Python casefold
     # as directory bindings, including rows created before the login was linked.
-    overlap = (
+    overlap = [
         ActivitySpan.started_at < end,
         or_(ActivitySpan.ended_at > start, ActivitySpan.started_at == start),
-    )
+    ]
+    if db.get_bind().dialect.name == "postgresql":
+        # GiST bounds both ends of the scan without assuming a maximum span length.
+        report_day = Range(start, end, bounds="[)")
+        overlap.append(type_coerce(postgres_activity_span_range(), TSTZRANGE).overlaps(report_day))
     spellings = db.scalars(select(ActivitySpan.login).where(*overlap).distinct())
     logins = [login for login in spellings if login.casefold() in login_keys]
-    return ActivitySpan.login.in_(logins) & overlap[0] & overlap[1]
+    return and_(ActivitySpan.login.in_(logins), *overlap)
 
 
 def _filtered_spans(scope, filters: ChronologyFilters):
@@ -125,7 +126,7 @@ def _row(span: ActivitySpan, start: datetime, end: datetime) -> ChronologyRow:
 @router.post("/query", response_model=ChronologyPage)
 def query_day_chronology(filters: ChronologyQuery, db: SessionDep) -> ChronologyPage:
     # Put title search terms in a request body so they stay out of HTTP access logs.
-    zone = _office_timezone(db, filters.employee_id)
+    zone = _employee_timezone(db, filters.employee_id)
     start, end = _day_bounds(filters.day, zone)
     employee_spans = _employee_spans(db, filters.employee_id, start, end)
     programs = db.scalars(
@@ -153,7 +154,7 @@ def query_day_chronology(filters: ChronologyQuery, db: SessionDep) -> Chronology
 
 @router.post("/export", response_class=Response, responses={200: {"content": {XLSX_MEDIA_TYPE: {}}}})
 def export_day_chronology(filters: ChronologyFilters, db: SessionDep) -> Response:
-    zone = _office_timezone(db, filters.employee_id)
+    zone = _employee_timezone(db, filters.employee_id)
     start, end = _day_bounds(filters.day, zone)
     scope = _filtered_spans(_employee_spans(db, filters.employee_id, start, end), filters)
     spans = db.scalars(

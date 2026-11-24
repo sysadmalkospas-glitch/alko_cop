@@ -1,3 +1,5 @@
+import { cabinetFetch } from "./auth";
+
 export interface ChronologyFilters {
   employee_id: number;
   day: string;
@@ -44,7 +46,7 @@ async function readResponse(response: Response): Promise<Response> {
 }
 
 async function reportRequest(endpoint: string, filters: ChronologyFilters, signal: AbortSignal) {
-  return readResponse(await fetch(path + endpoint, {
+  return readResponse(await cabinetFetch(path + endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(filters),
@@ -66,12 +68,12 @@ export async function exportChronology(filters: ChronologyFilters, signal: Abort
 
 export async function searchChronologyEmployees(q: string, signal: AbortSignal): Promise<ChronologyEmployee[]> {
   const params = new URLSearchParams({ limit: "50", q });
-  const response = await readResponse(await fetch("/api/v1/employees?" + params, { signal, cache: "no-store" }));
+  const response = await readResponse(await cabinetFetch("/api/v1/employees?" + params, { signal, cache: "no-store" }));
   const page: { items: ChronologyEmployee[] } = await response.json();
   return page.items;
 }
 
 export async function fetchChronologyEmployee(id: string, signal: AbortSignal): Promise<ChronologyEmployee> {
-  const response = await readResponse(await fetch("/api/v1/employees/" + id, { signal, cache: "no-store" }));
+  const response = await readResponse(await cabinetFetch("/api/v1/employees/" + id, { signal, cache: "no-store" }));
   return response.json();
 }
