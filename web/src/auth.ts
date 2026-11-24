@@ -13,6 +13,24 @@ export class AuthError extends Error {
   }
 }
 
+const sessionEvents = new EventTarget();
+let sessionGeneration = 0;
+
+export function onSessionExpired(listener: () => void) {
+  sessionEvents.addEventListener("expired", listener);
+  return () => sessionEvents.removeEventListener("expired", listener);
+}
+
+export async function cabinetFetch(path: string, init?: RequestInit): Promise<Response> {
+  const generation = sessionGeneration;
+  const response = await fetch(path, init);
+  if (response.status === 401 && generation === sessionGeneration && !init?.signal?.aborted) {
+    sessionGeneration += 1;
+    sessionEvents.dispatchEvent(new Event("expired"));
+  }
+  return response;
+}
+
 export async function getSession(signal: AbortSignal): Promise<CabinetUser | null> {
   const response = await fetch("/api/v1/auth/me", { signal });
   if (response.status === 401) return null;
@@ -27,10 +45,12 @@ export async function signIn(login: string, password: string): Promise<CabinetUs
     body: JSON.stringify({ login, password }),
   });
   if (!response.ok) throw new AuthError(response.status);
+  sessionGeneration += 1;
   return response.json();
 }
 
 export async function signOut(): Promise<void> {
   const response = await fetch("/api/v1/auth/logout", { method: "POST" });
   if (!response.ok && response.status !== 401) throw new AuthError(response.status);
+  sessionGeneration += 1;
 }

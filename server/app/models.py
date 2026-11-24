@@ -10,12 +10,17 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
+    func,
+    literal_column,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -62,6 +67,21 @@ class MonitoringProfile(Base):
     screenshot_skip_unchanged: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class WorkSchedule(Base):
+    __tablename__ = "work_schedules"
+    __table_args__ = (
+        CheckConstraint(
+            "late_tolerance_minutes BETWEEN 0 AND 1440",
+            name="ck_work_schedules_late_tolerance_minutes",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+    pattern: Mapped[dict] = mapped_column(JSON, nullable=False)
+    late_tolerance_minutes: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class Group(Base):
     __tablename__ = "groups"
 
@@ -69,6 +89,9 @@ class Group(Base):
     name: Mapped[str] = mapped_column(String(200))
     office_id: Mapped[int | None] = mapped_column(ForeignKey("offices.id"))
     profile_id: Mapped[int | None] = mapped_column(ForeignKey("monitoring_profiles.id"))
+    schedule_id: Mapped[int | None] = mapped_column(
+        ForeignKey("work_schedules.id", name="fk_groups_schedule_id"), index=True,
+    )
 
 
 class Position(Base):
@@ -88,6 +111,9 @@ class Employee(Base):
     )
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id"))
     is_dismissed: Mapped[bool] = mapped_column(Boolean, default=False)
+    schedule_id: Mapped[int | None] = mapped_column(
+        ForeignKey("work_schedules.id", name="fk_employees_schedule_id"), index=True,
+    )
 
     logins: Mapped[list["EmployeeLogin"]] = relationship(back_populates="employee")
 
@@ -155,6 +181,20 @@ class ActivitySpan(Base):
     process_name: Mapped[str | None] = mapped_column(String(260))
     window_title: Mapped[str | None] = mapped_column(Text)
     url: Mapped[str | None] = mapped_column(Text)
+
+
+def postgres_activity_span_range():
+    # Preserve zero-length spans and tolerate inverted bounds in legacy rows.
+    return func.tstzrange(
+        ActivitySpan.started_at, func.greatest(ActivitySpan.started_at, ActivitySpan.ended_at),
+        literal_column("'[]'"),
+    )
+
+
+Index(
+    "ix_activity_spans_time_range", postgres_activity_span_range(), postgresql_using="gist",
+    info={"postgresql_only": True},
+).ddl_if(dialect="postgresql")
 
 
 class SystemEvent(Base):

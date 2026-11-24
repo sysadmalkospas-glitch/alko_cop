@@ -19,6 +19,12 @@ def database_url() -> str:
     return config.attributes.get("database_url") or Settings().database_url
 
 
+def include_object(obj, name, type_, reflected, compare_to):
+    if type_ == "index" and obj.info.get("postgresql_only"):
+        return context.get_context().dialect.name == "postgresql"
+    return True
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=database_url(),
@@ -34,7 +40,9 @@ def run_migrations_online() -> None:
     engine = create_engine(database_url(), poolclass=pool.NullPool)
     try:
         with engine.connect() as connection:
-            context.configure(connection=connection, target_metadata=target_metadata)
+            context.configure(
+                connection=connection, target_metadata=target_metadata, include_object=include_object,
+            )
             with context.begin_transaction():
                 context.run_migrations()
     finally:

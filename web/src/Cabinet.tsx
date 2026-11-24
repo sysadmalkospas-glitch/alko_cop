@@ -5,6 +5,7 @@ import { Link, NavLink, Navigate, Route, Routes, useLocation, useParams } from "
 import { ReportFilters } from "./ReportFilters";
 import { signOut } from "./auth";
 import type { CabinetUser } from "./auth";
+import { DayChronology } from "./DayChronology";
 
 const reports = [
   { slug: "time-tracking", title: "Учёт времени" },
@@ -117,10 +118,14 @@ function ReportPage() {
   return (
     <>
       <Title order={1} className="page-heading">{report.title}</Title>
-      <ReportFilters />
-      <Paper withBorder p="lg" className="empty-panel">
-        <Text c="dimmed">Данные отчёта пока недоступны.</Text>
-      </Paper>
+      {slug === "day-timeline" ? <DayChronology /> : (
+        <>
+          <ReportFilters />
+          <Paper withBorder p="lg" className="empty-panel">
+            <Text c="dimmed">Данные отчёта пока недоступны.</Text>
+          </Paper>
+        </>
+      )}
     </>
   );
 }
