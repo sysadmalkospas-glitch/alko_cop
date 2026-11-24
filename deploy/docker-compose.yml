@@ -41,7 +41,7 @@ services:
       retries: 20
 
   caddy:
-    image: caddy:2.11.4-alpine
+    build: ../web
     restart: unless-stopped
     depends_on:
       server:

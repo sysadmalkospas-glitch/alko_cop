@@ -16,3 +16,7 @@ deploy/.env
 deploy/data/
 deploy/certs/
 deploy/alkocop-root.crt
+
+# Web
+web/node_modules/
+web/dist/

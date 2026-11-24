@@ -13,12 +13,30 @@ base_url="https://${ALKOCOP_HOST}:${ALKOCOP_HTTPS_PORT}"
 root_ca="$RUNNER_TEMP/alkocop-ci-root.crt"
 cookie_jar="$RUNNER_TEMP/alkocop-ci-cookies"
 headers_file="$RUNNER_TEMP/alkocop-ci-headers"
+cabinet_html="$RUNNER_TEMP/alkocop-ci-cabinet.html"
 
 check_no_h3() {
     if grep -qi '^alt-svc:.*h3' "$headers_file"; then
         echo "Unexpected HTTP/3 advertisement" >&2
         exit 1
     fi
+}
+
+check_cabinet() {
+    local asset
+    local -a assets
+    curl --silent --show-error --fail --cacert "$1" "$base_url/" > "$cabinet_html"
+    grep -q '<div id="root"></div>' "$cabinet_html"
+    curl --silent --show-error --fail --cacert "$1" "$base_url/reports/day-structure?period=week" |
+        cmp -s "$cabinet_html" -
+    mapfile -t assets < <(grep -oE '/assets/[^"]+\.(js|css)' "$cabinet_html")
+    test "${#assets[@]}" -ge 2
+    for asset in "${assets[@]}"; do
+        curl --silent --show-error --fail --cacert "$1" "$base_url$asset" > /dev/null
+    done
+    test "$(curl --silent --show-error --cacert "$1" --output /dev/null --write-out '%{http_code}' "$base_url/assets/missing.js")" = 404
+    test "$(curl --silent --show-error --cacert "$1" --output /dev/null --write-out '%{http_code}' "$base_url/api/missing")" = 404
+    echo "Verified cabinet, report deep link, static assets and API routing"
 }
 
 install -d -m 0777 "$SCREENSHOT_PATH"
@@ -38,6 +56,7 @@ curl_tls=(curl --silent --show-error --fail --cacert "$root_ca")
 "${curl_tls[@]}" --retry 30 --retry-all-errors --retry-delay 2 --max-time 5 --dump-header "$headers_file" "$base_url/health"
 check_no_h3
 echo
+check_cabinet "$root_ca"
 
 # Only the Caddy container may publish a host port.
 for service in server db; do
@@ -95,4 +114,5 @@ curl --silent --show-error --fail --cacert "$custom_ca" --retry 30 --retry-all-e
     --retry-delay 2 --max-time 5 --dump-header "$headers_file" "$base_url/health"
 check_no_h3
 echo
+check_cabinet "$custom_ca"
 echo "Verified custom TLS certificate and no HTTP/3 advertisement"
