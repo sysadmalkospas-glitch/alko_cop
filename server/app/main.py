@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from .api import agent
+from .api import agent, directories
 from .auth import router as auth_router
 from .config import get_settings
 from .db import init_engine
@@ -19,6 +19,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AlkoCop server", version="0.1.0", lifespan=lifespan)
 app.include_router(agent.router)
 app.include_router(auth_router)
+app.include_router(directories.router)
 
 
 @app.get("/health")

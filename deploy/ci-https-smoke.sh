@@ -57,6 +57,22 @@ echo "Verified server and database have no published ports"
 awk '$6 == "alkocop_session" && $4 == "TRUE" { found=1 } END { exit !found }' "$cookie_jar"
 "${curl_tls[@]}" --cookie "$cookie_jar" "$base_url/api/v1/auth/me" > /dev/null
 
+# Exercise PostgreSQL observation upserts and the historical backfill over real agent data.
+enroll_payload="$(python -c 'import json, os; print(json.dumps({"enroll_key": os.environ["ALKOCOP_ENROLL_KEY"], "machine_id": "ci-machine", "hostname": "CI-PC"}))')"
+agent_token="$("${curl_tls[@]}" -H 'Content-Type: application/json' --data "$enroll_payload" \
+    "$base_url/api/agent/v1/enroll" | python -c 'import json, sys; print(json.load(sys.stdin)["token"])')"
+"${curl_tls[@]}" -H "Authorization: Bearer $agent_token" -H 'Content-Type: application/json' \
+    --data '{"events":[{"id":"ci-first","login":"CI\\Observer","occurred_at":"2026-11-20T09:00:00Z","kind":"logon"}]}' \
+    "$base_url/api/agent/v1/activity" > /dev/null
+"${compose[@]}" exec -T server alembic downgrade 0003
+"${compose[@]}" exec -T server alembic upgrade head
+"${curl_tls[@]}" -H "Authorization: Bearer $agent_token" -H 'Content-Type: application/json' \
+    --data '{"events":[{"id":"ci-last","login":"ci\\observer","occurred_at":"2026-11-20T10:00:00Z","kind":"logoff"}]}' \
+    "$base_url/api/agent/v1/activity" > /dev/null
+"${curl_tls[@]}" --cookie "$cookie_jar" "$base_url/api/v1/logins/unknown" |
+    python -c 'import json, sys; row, = json.load(sys.stdin)["items"]; assert row["login"].casefold() == "ci\\observer"; assert row["first_seen_at"] == "2026-11-20T09:00:00Z"; assert row["last_seen_at"] == "2026-11-20T10:00:00Z"; assert row["last_computer_id"] is not None'
+echo "Verified PostgreSQL observed login migration and case-insensitive updates"
+
 # The throttle must use the client address supplied by the trusted proxy, not
 # the proxy container's address shared by all clients.
 "${compose[@]}" exec -T server python -c "import os; from sqlalchemy import create_engine, select; from sqlalchemy.orm import Session; from app.config import get_settings; from app.models import LoginThrottle; from app.security import hash_token; db = Session(create_engine(get_settings().database_url)); keys = list(db.scalars(select(LoginThrottle.key).where(LoginThrottle.key.like('ip:%')))); assert len(keys) == 1 and 'ip:' + hash_token(os.environ['FORWARDED_ALLOW_IPS']) not in keys; db.close()"
