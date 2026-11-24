@@ -1,16 +1,20 @@
 from datetime import datetime, timezone
 from typing import Annotated, Generic, TypeVar, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, with_config
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, field_validator, with_config
 
 from .models import as_utc
+from .office_timezones import DEFAULT_OFFICE_TIMEZONE, validate_office_timezone
 
 MAX_DIRECTORY_ID = 2_147_483_647
 DirectoryId = Annotated[int, Field(gt=0, le=MAX_DIRECTORY_ID)]
 DirectoryName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 FullName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)]
 ComputerName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
-TimezoneName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
+TimezoneName = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64),
+    AfterValidator(validate_office_timezone),
+]
 
 T = TypeVar("T")
 
@@ -34,7 +38,7 @@ class DirectoryRecord(BaseModel):
 
 class OfficeCreate(DirectoryInput):
     name: DirectoryName
-    timezone: TimezoneName = "Europe/Moscow"
+    timezone: TimezoneName = DEFAULT_OFFICE_TIMEZONE
 
 
 @with_config(ConfigDict(extra="forbid"))
