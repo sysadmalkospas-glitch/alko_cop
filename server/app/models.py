@@ -10,9 +10,11 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -62,6 +64,21 @@ class MonitoringProfile(Base):
     screenshot_skip_unchanged: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class WorkSchedule(Base):
+    __tablename__ = "work_schedules"
+    __table_args__ = (
+        CheckConstraint(
+            "late_tolerance_minutes BETWEEN 0 AND 1440",
+            name="ck_work_schedules_late_tolerance_minutes",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+    pattern: Mapped[dict] = mapped_column(JSON, nullable=False)
+    late_tolerance_minutes: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class Group(Base):
     __tablename__ = "groups"
 
@@ -69,6 +86,9 @@ class Group(Base):
     name: Mapped[str] = mapped_column(String(200))
     office_id: Mapped[int | None] = mapped_column(ForeignKey("offices.id"))
     profile_id: Mapped[int | None] = mapped_column(ForeignKey("monitoring_profiles.id"))
+    schedule_id: Mapped[int | None] = mapped_column(
+        ForeignKey("work_schedules.id", name="fk_groups_schedule_id"), index=True,
+    )
 
 
 class Position(Base):
@@ -88,6 +108,9 @@ class Employee(Base):
     )
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id"))
     is_dismissed: Mapped[bool] = mapped_column(Boolean, default=False)
+    schedule_id: Mapped[int | None] = mapped_column(
+        ForeignKey("work_schedules.id", name="fk_employees_schedule_id"), index=True,
+    )
 
     logins: Mapped[list["EmployeeLogin"]] = relationship(back_populates="employee")
 
