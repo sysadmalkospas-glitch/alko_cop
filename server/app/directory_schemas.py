@@ -48,6 +48,11 @@ class OfficeOut(DirectoryRecord):
     timezone: str
 
 
+class MonitoringProfileOptionOut(DirectoryRecord):
+    name: str
+    is_default: bool
+
+
 class GroupCreate(DirectoryInput):
     name: DirectoryName
     office_id: DirectoryId | None = None

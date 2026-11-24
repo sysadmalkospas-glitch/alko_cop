@@ -22,6 +22,7 @@ from ..directory_schemas import (
     GroupCreate,
     GroupOut,
     GroupUpdate,
+    MonitoringProfileOptionOut,
     OfficeCreate,
     OfficeOut,
     OfficeUpdate,
@@ -31,7 +32,7 @@ from ..directory_schemas import (
     PositionUpdate,
     UnknownLoginOut,
 )
-from ..models import Computer, Employee, EmployeeLogin, Group, ObservedLogin, Office, Position
+from ..models import Computer, Employee, EmployeeLogin, Group, MonitoringProfile, ObservedLogin, Office, Position
 
 router = APIRouter(prefix="/api/v1", tags=["directories"], dependencies=[Depends(current_user)])
 RecordId = Annotated[int, Path(gt=0, le=MAX_DIRECTORY_ID)]
@@ -123,6 +124,11 @@ def update_office(office_id: RecordId, payload: OfficeUpdate, db: SessionDep) ->
 @router.delete("/offices/{office_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_office(office_id: RecordId, db: SessionDep) -> None:
     _delete(db, _get(db, Office, office_id))
+
+
+@router.get("/monitoring-profiles", response_model=Page[MonitoringProfileOptionOut])
+def list_monitoring_profiles(db: SessionDep, params: ListQuery):
+    return _page(db, select(MonitoringProfile), params, MonitoringProfile.name, MonitoringProfile.id)
 
 
 @router.get("/groups", response_model=Page[GroupOut])
