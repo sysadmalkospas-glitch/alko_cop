@@ -32,6 +32,7 @@ from ..directory_schemas import (
     PositionUpdate,
     UnknownLoginOut,
 )
+from ..jobs.daily_totals import enqueue_login_history
 from ..models import Computer, Employee, EmployeeLogin, Group, MonitoringProfile, ObservedLogin, Office, Position
 
 router = APIRouter(prefix="/api/v1", tags=["directories"], dependencies=[Depends(current_user)])
@@ -219,7 +220,9 @@ def list_employee_logins(employee_id: RecordId, db: SessionDep, params: ListQuer
 @router.post("/employees/{employee_id}/logins", response_model=EmployeeLoginOut, status_code=status.HTTP_201_CREATED)
 def bind_employee_login(employee_id: RecordId, payload: EmployeeLoginCreate, db: SessionDep) -> EmployeeLogin:
     _get(db, Employee, employee_id)
-    return _create(db, EmployeeLogin(employee_id=employee_id, login=payload.login, login_key=payload.login.casefold()))
+    login_key = payload.login.casefold()
+    enqueue_login_history(db, login_key)
+    return _create(db, EmployeeLogin(employee_id=employee_id, login=payload.login, login_key=login_key))
 
 
 @router.delete("/employees/{employee_id}/logins/{login_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -229,6 +232,7 @@ def unbind_employee_login(employee_id: RecordId, login_id: RecordId, db: Session
     ))
     if binding is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Employee login not found")
+    enqueue_login_history(db, binding.login_key)
     _delete(db, binding)
 
 
