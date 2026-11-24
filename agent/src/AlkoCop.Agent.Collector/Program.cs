@@ -7,6 +7,7 @@ namespace AlkoCop.Agent.Collector;
 internal static class Program
 {
     private static readonly TimeSpan SampleInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan LiveSampleInterval = TimeSpan.FromSeconds(2);
     private const int MaxPendingMessages = 50_000;
 
     private static async Task<int> Main()
@@ -29,6 +30,7 @@ internal static class Program
         var sampler = new WindowSampler();
         var pending = new Queue<string>();
         var elapsed = Stopwatch.StartNew();
+        var nextLiveSample = TimeSpan.Zero;
         var schedule = new ScreenshotSchedule();
         var screenshots = new ScreenCapture();
         Task<CaptureBatch>? capture = null;
@@ -61,6 +63,22 @@ internal static class Program
                     schedule.Reset();
                     connection = await CollectorConnection.TryConnectAsync(cts.Token);
                     connectionVersion++;
+                    nextLiveSample = TimeSpan.Zero;
+                }
+                if (connection is not null && elapsed.Elapsed >= nextLiveSample)
+                {
+                    nextLiveSample = elapsed.Elapsed + LiveSampleInterval;
+                    var live = NativeMethods.IsInteractiveDesktop() ? new LiveSample(
+                        LimitLength(sample.ProcessName, LiveSessionSnapshots.MaxProcessLength),
+                        LimitLength(sample.WindowTitle, LiveSessionSnapshots.MaxTitleLength),
+                        (int)Math.Min(sample.IdleFor.TotalSeconds, LiveSessionSnapshots.MaxIdleSeconds)) : null;
+                    // Always send the latest observation first. Never queue a title for later replay.
+                    if (!await connection.SendAsync(new PipeMessage(PipeMessage.TypeLiveSample, LiveSample: live).ToLine(), cts.Token))
+                    {
+                        await connection.DisposeAsync();
+                        connection = null;
+                        continue;
+                    }
                 }
                 if (connection is not null && !await TryFlushAsync(connection, pending, cts.Token))
                 {
@@ -142,6 +160,9 @@ internal static class Program
         }
         pending.Enqueue(line);
     }
+
+    private static string? LimitLength(string? value, int limit) =>
+        value is not null && value.Length > limit ? value[..limit] : value;
 
     private static async Task<bool> TryFlushAsync(CollectorConnection connection, Queue<string> pending, CancellationToken ct)
     {

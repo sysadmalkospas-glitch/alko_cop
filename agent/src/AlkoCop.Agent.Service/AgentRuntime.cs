@@ -9,6 +9,8 @@ public sealed class AgentRuntime : IDisposable
     private readonly Lock _configLock = new();
     private AgentConfigDto _config = AgentConfigDto.Default with { ScreenshotsEnabled = false };
     private TaskCompletionSource _configChanged = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private string? _serverToken;
+    private string? _rejectedHeartbeatToken;
 
     public AgentRuntime(AgentOptions options)
     {
@@ -21,6 +23,17 @@ public sealed class AgentRuntime : IDisposable
     public OutboxQueue Queue { get; }
     public ScreenshotQueue Screenshots { get; }
     public AgentStateStore State { get; }
+    internal LiveSessionSnapshots LiveSessions { get; } = new();
+
+    internal string? ServerToken
+    {
+        get => Volatile.Read(ref _serverToken);
+        set => Volatile.Write(ref _serverToken, value);
+    }
+
+    internal void RejectHeartbeatToken(string token) => Volatile.Write(ref _rejectedHeartbeatToken, token);
+
+    internal bool IsHeartbeatTokenRejected(string token) => Volatile.Read(ref _rejectedHeartbeatToken) == token;
 
     /// <summary>Screenshots require a monitoring profile received from the server.</summary>
     public AgentConfigDto Config

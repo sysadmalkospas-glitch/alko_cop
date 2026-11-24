@@ -154,6 +154,22 @@ class Computer(Base):
         return self.display_name if self.display_name is not None else self.hostname
 
 
+class ComputerHeartbeat(Base):
+    """The current agent observation. Each computer has at most one row."""
+
+    __tablename__ = "computer_heartbeats"
+
+    computer_id: Mapped[int] = mapped_column(ForeignKey("computers.id", ondelete="CASCADE"), primary_key=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    sampled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    login: Mapped[str | None] = mapped_column(String(300))
+    login_key: Mapped[str | None] = mapped_column(Text)
+    process_name: Mapped[str | None] = mapped_column(String(260))
+    window_title: Mapped[str | None] = mapped_column(String(1024))
+    last_input_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_idle: Mapped[bool | None] = mapped_column(Boolean)
+
+
 class ObservedLogin(Base):
     __tablename__ = "observed_logins"
 

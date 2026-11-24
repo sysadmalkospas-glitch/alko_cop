@@ -21,6 +21,7 @@ builder.Services.AddHttpClient<ServerClient>((sp, http) =>
 });
 builder.Services.AddHostedService<PipeServerWorker>();
 builder.Services.AddHostedService<SyncWorker>();
+builder.Services.AddHostedService<HeartbeatWorker>();
 builder.Services.AddHostedService<CollectorLauncherWorker>();
 
 builder.Build().Run();

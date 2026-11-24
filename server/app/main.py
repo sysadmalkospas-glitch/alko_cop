@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from .api import agent_heartbeat, live_overview
 from .api import agent, directories, work_schedules
 from .auth import router as auth_router
 from .config import get_settings
@@ -33,6 +34,8 @@ app.include_router(auth_router)
 app.include_router(work_schedules.router)
 app.include_router(directories.router)
 app.include_router(day_chronology_router)
+app.include_router(agent_heartbeat.router)
+app.include_router(live_overview.router)
 
 
 @app.get("/health")

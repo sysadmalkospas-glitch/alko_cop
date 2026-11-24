@@ -22,6 +22,7 @@ const reports = [
 ];
 
 const defaultReport = "/reports/time-tracking";
+const LiveOverview = lazy(() => import("./LiveOverview"));
 const SettingsPage = lazy(() => import("./settings/SettingsPage"));
 
 export function Cabinet({ user, onLogout }: { user: CabinetUser; onLogout: () => void }) {
@@ -118,7 +119,11 @@ function ReportPage() {
   return (
     <>
       <Title order={1} className="page-heading">{report.title}</Title>
-      {slug === "day-timeline" ? <DayChronology /> : (
+      {slug === "live-overview" ? (
+        <Suspense fallback={<Text role="status">Загружаем сводку…</Text>}>
+          <LiveOverview />
+        </Suspense>
+      ) : slug === "day-timeline" ? <DayChronology /> : (
         <>
           <ReportFilters />
           <Paper withBorder p="lg" className="empty-panel">

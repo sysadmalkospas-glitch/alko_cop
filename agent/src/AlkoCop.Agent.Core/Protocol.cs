@@ -71,13 +71,15 @@ public sealed record PipeMessage(
     ActivitySpanDto? Span = null,
     SystemEventDto? Event = null,
     AgentConfigDto? Config = null,
-    ScreenshotFrame? Frame = null)
+    ScreenshotFrame? Frame = null,
+    LiveSample? LiveSample = null)
 {
     public const string PipeName = "AlkoCopAgent";
     public const string TypeSpan = "span";
     public const string TypeEvent = "event";
     public const string TypeConfig = "config";
     public const string TypeScreenshot = "screenshot";
+    public const string TypeLiveSample = "live_sample";
 
     public string ToLine() => JsonSerializer.Serialize(this, AgentJson.Options);
 

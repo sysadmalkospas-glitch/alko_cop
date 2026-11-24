@@ -76,6 +76,8 @@ public sealed class PipeServerWorker(AgentRuntime runtime, ILogger<PipeServerWor
         using var connection = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var writer = new StreamWriter(pipe, new UTF8Encoding(false), leaveOpen: true);
         var publish = PublishConfigAsync(writer, connection);
+        var connectionId = Guid.NewGuid();
+        var trustedSessionId = 0;
         try
         {
             using var reader = new StreamReader(pipe, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
@@ -97,13 +99,18 @@ public sealed class PipeServerWorker(AgentRuntime runtime, ILogger<PipeServerWor
             {
                 return;
             }
+            trustedSessionId = (int)sessionId;
 
             do
             {
                 var msg = PipeMessage.FromLine(line);
                 if (msg?.Type == PipeMessage.TypeSpan && line.Length <= MaxActivityLineLength && msg.Span is { } span)
                 {
-                    runtime.RecordSpan(span with { Login = login, SessionId = (int)sessionId });
+                    runtime.RecordSpan(span with { Login = login, SessionId = trustedSessionId });
+                }
+                else if (msg?.Type == PipeMessage.TypeLiveSample && line.Length <= MaxActivityLineLength)
+                {
+                    runtime.LiveSessions.Record(trustedSessionId, connectionId, login, msg.LiveSample);
                 }
                 else if (msg?.Type == PipeMessage.TypeScreenshot && msg.Frame is { } frame)
                 {
@@ -125,6 +132,10 @@ public sealed class PipeServerWorker(AgentRuntime runtime, ILogger<PipeServerWor
         }
         finally
         {
+            if (trustedSessionId != 0)
+            {
+                runtime.LiveSessions.ForgetConnection(trustedSessionId, connectionId);
+            }
             connection.Cancel();
             await publish;
             await pipe.DisposeAsync();
