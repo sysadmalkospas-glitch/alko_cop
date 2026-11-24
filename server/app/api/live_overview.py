@@ -49,10 +49,15 @@ class LiveComputer(BaseModel):
     session: LiveSessionOut | None
 
 
-@router.get("", response_model=Page[LiveComputer])
+class LiveOverviewPage(Page[LiveComputer]):
+    as_of: datetime
+
+
+@router.get("", response_model=LiveOverviewPage)
 def live_overview(params: Annotated[LiveOverviewQuery, Query()], db: SessionDep, response: Response):
     response.headers["Cache-Control"] = "no-store"
-    cutoff = utcnow() - LIVE_WINDOW
+    as_of = utcnow()
+    cutoff = as_of - LIVE_WINDOW
     office_id = func.coalesce(Computer.office_id, Group.office_id)
     query = (
         select(Computer, ComputerHeartbeat, Employee, Group, Office)
@@ -102,4 +107,4 @@ def live_overview(params: Annotated[LiveOverviewQuery, Query()], db: SessionDep,
             online=last_seen_at is not None and last_seen_at > cutoff,
             session=session,
         ))
-    return Page[LiveComputer](items=items, total=total, limit=params.limit, offset=params.offset)
+    return LiveOverviewPage(items=items, total=total, limit=params.limit, offset=params.offset, as_of=as_of)

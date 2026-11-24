@@ -1,14 +1,14 @@
 """Store the latest live snapshot for each computer.
 
 Revision ID: 0008
-Revises: 0006
+Revises: 0007
 """
 
 import sqlalchemy as sa
 from alembic import op
 
 revision = "0008"
-down_revision = "0006"
+down_revision = "0007"
 branch_labels = None
 depends_on = None
 

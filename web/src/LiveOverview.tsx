@@ -10,6 +10,7 @@ import { useDirectoryRequest } from "./settings/loading";
 const PAGE_SIZE = 50;
 const REFRESH_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 8_000;
+const MAX_OBSERVATION_AGE_MS = 60_000;
 
 interface DirectoryLabel {
   id: number;
@@ -37,6 +38,7 @@ interface LiveComputer {
 interface LivePage {
   items: LiveComputer[];
   total: number;
+  as_of: string;
 }
 
 const dateTimes = new Intl.DateTimeFormat("ru-RU", { dateStyle: "short", timeStyle: "medium" });
@@ -126,11 +128,34 @@ function LiveTable({ office, group }: { office: string | null; group: string | n
 
   useEffect(() => {
     const controller = new AbortController();
+    let expiryTimer: number | undefined;
     const query = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String((page - 1) * PAGE_SIZE) });
     if (office !== null) query.set("office_id", office);
     if (group !== null) query.set("group_id", group);
 
+    function display(data: LivePage, requestedAt: number) {
+      // Age observations against the server clock even when the browser clock differs.
+      const cutoff = Date.parse(data.as_of) + performance.now() - requestedAt - MAX_OBSERVATION_AGE_MS;
+      let nextExpiry = Infinity;
+      function fresh(at: string | null) {
+        const remaining = at === null ? 0 : Date.parse(at) - cutoff;
+        if (!(remaining > 0)) return false;
+        nextExpiry = Math.min(nextExpiry, remaining);
+        return true;
+      }
+      const items = data.items.map((row) => ({
+        ...row,
+        online: row.online && fresh(row.last_seen_at),
+        session: fresh(row.session?.sampled_at ?? null) ? row.session : null,
+      }));
+      setState({ page, data: { ...data, items } });
+      if (Number.isFinite(nextExpiry)) {
+        expiryTimer = window.setTimeout(() => display(data, requestedAt), Math.ceil(nextExpiry) + 1);
+      }
+    }
+
     async function refresh() {
+      const requestedAt = performance.now();
       try {
         const response = await cabinetFetch("/api/v1/reports/live-overview?" + query, {
           cache: "no-store",
@@ -139,14 +164,18 @@ function LiveTable({ office, group }: { office: string | null; group: string | n
         if (!response.ok) throw new Error("Live overview request failed");
         const data: LivePage = await response.json();
         if (controller.signal.aborted) return;
+        window.clearTimeout(expiryTimer);
         const lastPage = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
         if (page > lastPage) {
           setPage(lastPage);
           return;
         }
-        setState({ page, data });
+        display(data, requestedAt);
       } catch {
-        if (!controller.signal.aborted) setState({ page, error: true });
+        if (!controller.signal.aborted) {
+          window.clearTimeout(expiryTimer);
+          setState({ page, error: true });
+        }
       }
     }
 
@@ -154,6 +183,7 @@ function LiveTable({ office, group }: { office: string | null; group: string | n
     const timer = window.setInterval(() => { void refresh(); }, REFRESH_MS);
     return () => {
       controller.abort();
+      window.clearTimeout(expiryTimer);
       window.clearInterval(timer);
     };
   }, [office, group, page, revision]);

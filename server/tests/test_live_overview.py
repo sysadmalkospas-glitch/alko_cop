@@ -76,6 +76,7 @@ def test_live_heartbeat_replaces_snapshot_and_filters(cabinet, clock):
     response = cabinet.get(OVERVIEW, params={"office_id": south["id"], "group_id": group["id"]})
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == "no-store"
+    assert response.json()["as_of"] == "2026-11-24T12:00:00Z"
     assert response.json()["items"] == [{
         "id": computer_id,
         "name": "Первый ПК",
